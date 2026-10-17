@@ -1,0 +1,51 @@
+const test = require('node:test'), assert = require('node:assert/strict')
+const { PassThrough } = require('node:stream'), { EventEmitter } = require('node:events')
+const { InteractiveSession, sessionSuggestions } = require('../electron/interactive.cjs')
+function fixture() {
+  const child = new EventEmitter()
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough()
+  const sent = [], events = []; child.stdin.on('data', b => sent.push(JSON.parse(b)))
+  const client = new InteractiveSession(child, { onEvent: e => events.push(e), terminate: () => {}, requestTimeout: 100 })
+  const receive = e => child.stdout.write(JSON.stringify(e) + '\n')
+  const ask = (name, input = {}, extra = {}) => receive({ type: 'control_request', request_id: 'pending', request: { subtype: 'can_use_tool', tool_name: name, input, ...extra } })
+  return { child, client, sent, events, receive, ask }
+}
+test('answers match live IDs, preserve native input, and reject stale/duplicate replies', () => {
+  const f = fixture(); f.ask('Write', { file_path: 'a.txt', content: 'safe' })
+  f.client.answer('pending', { action: 'allow', updatedInput: { content: 'untrusted' } })
+  assert.equal(f.sent[0].response.response.updatedInput.content, 'safe')
+  assert.throws(() => f.client.answer('pending', { action: 'allow' }), /已结束/)
+  f.ask('Write'); f.receive({ type: 'control_cancel_request', request_id: 'pending' })
+  assert.throws(() => f.client.answer('pending', { action: 'allow' }), /已结束/)
+})
+test('remembered rules come only from native suggestions and can never write persistent settings', () => {
+  const f = fixture(), request = { permission_suggestions: [{ type: 'addRules', behavior: 'allow', rules: [{ toolName: 'Bash', ruleContent: 'npm test' }], destination: 'localSettings' }] }
+  f.ask('Bash', {}, request); f.client.answer('pending', { action: 'allow-session', updatedPermissions: [{ type: 'setMode', mode: 'bypassPermissions' }] })
+  assert.equal(f.sent[0].response.response.updatedPermissions[0].destination, 'session')
+  assert.equal(f.sent[0].response.response.updatedPermissions[0].type, 'addRules')
+  assert.deepEqual(sessionSuggestions({ ...request, suppress_always_allow_rule: true }), [])
+  assert.deepEqual(sessionSuggestions({ permission_suggestions: [{ type: 'setMode', mode: 'bypassPermissions' }] }), [])
+  f.ask('Write', {}, { ...request, suppress_always_allow_rule: true })
+  assert.throws(() => f.client.answer('pending', { action: 'allow-session' }), /单独确认/)
+  assert.ok(f.client.pending.has('pending'))
+  assert.equal(sessionSuggestions({ permission_suggestions: [{ type: 'setMode', mode: 'acceptEdits' }, ...request.permission_suggestions] })[0].type, 'addRules')
+})
+test('questions require every answer, preserve multi-select, and cannot bypass answering with generic allow', () => {
+  const f = fixture(), questions = [{ question: 'Style?', multiSelect: false }, { question: 'Parts?', multiSelect: true }]
+  f.ask('AskUserQuestion', { questions })
+  assert.throws(() => f.client.answer('pending', { action: 'allow' }), /不支持/)
+  assert.throws(() => f.client.answer('pending', { action: 'answer', answers: { 'Style?': 'custom' } }), /所有问题/)
+  assert.ok(f.client.pending.has('pending'))
+  f.client.answer('pending', { action: 'answer', answers: { 'Style?': 'custom', 'Parts?': ['Code', 'Tests'] } })
+  assert.deepEqual(f.sent[0].response.response.updatedInput, { questions, answers: { 'Style?': 'custom', 'Parts?': ['Code', 'Tests'] } })
+})
+test('control replies are correlated, rejected on native errors, and timeout without leaking requests', async () => {
+  const f = fixture(), ready = f.client.initialize()
+  f.receive({ type: 'control_response', response: { request_id: f.sent[0].request_id, subtype: 'success', response: { commands: [] } } })
+  assert.deepEqual(await ready, { commands: [] })
+  const failed = f.client.request({ subtype: 'interrupt' })
+  f.receive({ type: 'control_response', response: { request_id: f.sent[1].request_id, subtype: 'error', error: 'native rejected' } })
+  await assert.rejects(failed, /native rejected/)
+  await assert.rejects(f.client.request({ subtype: 'interrupt' }), /超时/)
+  assert.equal(f.client.controls.size, 0)
+})

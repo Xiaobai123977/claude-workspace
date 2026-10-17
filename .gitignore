@@ -1,0 +1,23 @@
+node_modules/
+dist/
+artifacts/
+*.log
+
+release/
+
+# Local Claude state and generated project exploration
+.claude/
+CLAUDE.local.md
+
+# Credentials and local overrides
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Editor and operating-system files
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
