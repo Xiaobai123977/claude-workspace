@@ -9,6 +9,7 @@ const projectKey = cwd => cwd.replace(/[^a-zA-Z0-9]/g, '-')
 const records = text => text.split('\n').flatMap(line => { try { const e=JSON.parse(line);return e&&typeof e==='object'&&!Array.isArray(e)?[e]:[] } catch { return [] } })
 const content = message => typeof message?.content === 'string' ? [{type:'text', text:message.content}] : Array.isArray(message?.content) ? message.content : []
 const display = blocks => typeof blocks === 'string' ? blocks : (blocks || []).map(b => b.type === 'image' ? '[图片]' : b.text || '').filter(Boolean).join('\n')
+const interruption = e => e.type==='user'&&content(e.message).length>0&&content(e.message).every(b=>b.type==='text')&&/^\[Request interrupted by user(?: for tool use)?\]$/.test(display(content(e.message)).trim())
 const revision = stat => `${stat.size}:${stat.mtimeMs}`
 const metadataKeys = ['id','attachments','topologySelection','browserContexts','approvals','gatewayRoute','imageReferences','notice','error','structured','tasks','usage','lastRequestUsage','modelUsage','cacheReporting','contextKey','changes','changeError']
 
@@ -18,7 +19,7 @@ function parseMessages(events) {
   const unique = new Map()
   for (const e of events) if (e.uuid && !e.isSidechain && !e.parent_tool_use_id && !e.parentToolUseID) unique.set(e.uuid, e)
   const ordered = [...unique.values()]
-  const leaf = ordered.findLast(e => !e.isMeta && (e.type==='assistant'||e.type==='user'&&display(content(e.message).filter(b=>['text','image'].includes(b.type)))))
+  const leaf = ordered.findLast(e => !e.isMeta && !interruption(e) && (e.type==='assistant'||e.type==='user'&&display(content(e.message).filter(b=>['text','image'].includes(b.type)))))
   let chain
   if (leaf?.parentUuid && unique.has(leaf.parentUuid)) {
     chain = new Set(); let e = leaf
@@ -30,6 +31,25 @@ function parseMessages(events) {
   }
   const messages = [], tools = new Map(); let assistant,requestUsages=new Map()
   for (const e of ordered) {
+    if(interruption(e)){
+      // CLI writes this control marker as a user record. Associate it with its
+      // own ancestor turn, including markers flushed after a newer answer.
+      let ancestor=unique.get(e.parentUuid),target,index=-1;const visited=new Set()
+      while(ancestor&&!visited.has(ancestor.uuid)){
+        visited.add(ancestor.uuid)
+        index=messages.findIndex(m=>m.id===ancestor.uuid||m.checkpointId===ancestor.uuid||m.nativeUUIDs?.includes(ancestor.uuid))
+        if(index>=0){target=messages[index];break}
+        ancestor=unique.get(ancestor.parentUuid)
+      }
+      if(!target)continue
+      if(target.role==='user'){
+        target=messages[index+1]?.role==='assistant'?messages[index+1]:null
+        if(!target){target={id:e.uuid,checkpointId:e.uuid,role:'assistant',text:'',time:Date.parse(e.timestamp)||0,tools:[],status:'stopped'};messages.splice(index+1,0,target)}
+      }
+      target.status='stopped';delete target.error
+      if(target===assistant){assistant=null;requestUsages=new Map()}
+      continue
+    }
     if (chain && !chain.has(e.uuid) || !['user','assistant'].includes(e.type) || !e.message) continue
     const blocks = content(e.message)
     for (const b of blocks) if (b.type === 'tool_result') {
@@ -93,7 +113,7 @@ class SharedHistory {
     try { fs.readSync(fd,head,0,head.length,0); fs.readSync(fd,tail,0,tail.length,Math.max(0,stat.size-tail.length)) } finally { fs.closeSync(fd) }
     const events = records(head.toString()), ending = stat.size > length ? records(tail.toString()) : events
     const visible=[...events,...ending]
-    const first = visible.find(e => e.type === 'user' && !e.isMeta && !e.isSidechain && display(content(e.message)))
+    const first = visible.find(e => e.type === 'user' && !e.isMeta && !e.isSidechain && !interruption(e) && display(content(e.message)))
     const cwd = visible.find(e => typeof e.cwd === 'string' && path.isAbsolute(e.cwd) && !e.isSidechain)?.cwd || fallbackCwd
     const customTitle = [...ending].reverse().find(e => e.type === 'custom-title')?.customTitle || [...events].reverse().find(e => e.type === 'custom-title')?.customTitle
     const item = {id:path.basename(file,'.jsonl'),file,cwd,revision:rev,hasMessages:visible.some(e=>['user','assistant'].includes(e.type)&&!e.isMeta&&!e.isSidechain&&e.message),title:customTitle || commandText(display(content(first?.message))).slice(0,100) || 'Claude 会话',customTitle,createdAt:Date.parse(first?.timestamp)||stat.birthtimeMs,updatedAt:stat.mtimeMs}

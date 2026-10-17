@@ -32,7 +32,10 @@ function turn(prompt, hasImage = false) {
     const file=process.env.CLAUDE_GUI_TEST_FINAL_RETRY
     fs.appendFileSync(file,JSON.stringify({prompt,id,time:Date.now()})+'\n')
     const count=fs.readFileSync(file,'utf8').trim().split('\n').map(JSON.parse).filter(e=>e.prompt===prompt).length
-    if(prompt==='FINAL_RETRY_RECOVER'&&count>=3){finish('Recovered after outer retries');return}
+    if(prompt==='FINAL_RETRY_RECOVER'&&count>=3){
+      emit({type:'assistant',message:{id:'retry-thinking',content:[{type:'thinking',thinking:'Recovered stream is now thinking'}]}})
+      later(()=>finish('Recovered after outer retries'),1000);return
+    }
     if(prompt==='FINAL_RETRY_EXIT')process.exit(7)
     finish('', 'fixture raw error: model unavailable HTTP 404');return
   }

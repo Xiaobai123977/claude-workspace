@@ -37,6 +37,10 @@ async function fetchWithRetry(fetcher, url, init, { timeout = 120000, onRetry = 
       release = () => { clearTimeout(timer); clearTimeout(progressTimer);init.signal?.removeEventListener('abort', abort);attempt.abort() }
       let response, error
       try { response = await fetcher(url, { ...init, signal: attempt.signal }) } catch (e) { error = e }
+      // The proxy fetcher resolves after response validation/first real output.
+      // Keep the stream timeout alive, but never revive first-response waiting
+      // while that already accepted stream is still being consumed.
+      clearTimeout(progressTimer)
       if (init.signal?.aborted) { release(); throw init.signal.reason || new Error('请求已取消') }
       let retryable = response
         ? response.headers.get('x-should-retry') !== 'false' && ([408, 409, 425, 429].includes(response.status) || response.status >= 500)

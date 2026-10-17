@@ -4,6 +4,17 @@ const { fetchWithRetry, retryDelay } = require('../electron/gateway-retry.cjs')
 const { startProxy, sse } = require('../electron/provider-proxy.cjs')
 const quick = { baseDelayMs: 0, maxDelayMs: 0 }
 
+test('a delivered response cancels the pending notice timer while its stream is still open',async t=>{
+  const events=[];let signal
+  const result=await fetchWithRetry(async(_url,init)=>{signal=init.signal;return Response.json({ok:true})},'http://fixture',{}, {timeout:15,policy:{noticeDelayMs:5},onRetry:e=>events.push(e)})
+  t.after(()=>result.release())
+  assert.equal(events.at(-1).phase,'cleared')
+  await new Promise(resolve=>setTimeout(resolve,30))
+  assert.equal(events.at(-1).phase,'cleared','A first-output timer must not revive waiting state after the response was delivered')
+  assert.equal(events.some(e=>e.reason==='pending'),false)
+  assert.equal(signal.aborted,true,'The real stream deadline still works even though its obsolete waiting notice was cancelled')
+})
+
 test('429 then 503 retry the same body and clear progress on success', async () => {
   const events = [], bodies = []; let count = 0
   const result = await fetchWithRetry(async (_url, init) => {

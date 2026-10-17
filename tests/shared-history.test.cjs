@@ -1,6 +1,24 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto')
 const {SharedHistory,parseMessages,projectKey}=require('../electron/shared-history.cjs')
 
+test('CLI interrupt markers become stopped state rather than user bubbles, without rewriting native history',t=>{
+  const f=fixture(t),marker=f.event('user','interrupt','a1','[Request interrupted by user]')
+  f.write([...f.rows,marker]);const original=fs.readFileSync(f.file,'utf8')
+  f.history.sync(f.state);const s=f.state.sessions[0];f.history.hydrate(s,true)
+  assert.deepEqual(s.messages.map(m=>m.text),['hello from CLI','native reply']);assert.equal(s.messages[1].status,'stopped')
+  assert.equal(fs.readFileSync(f.file,'utf8'),original)
+  const empty=parseMessages([f.rows[0],f.event('user','early-stop','u1','[Request interrupted by user for tool use]')])
+  assert.equal(empty.length,2);assert.equal(empty[1].role,'assistant');assert.equal(empty[1].status,'stopped')
+  const quoted=parseMessages([f.event('user','quote',null,'解释这个提示：[Request interrupted by user]')]);assert.equal(quoted[0].role,'user')
+})
+
+test('a late interrupt marker on an earlier turn cannot erase newer conversation or stop the wrong answer',t=>{
+  const f=fixture(t),rows=[...f.rows,f.event('user','u2','a1','latest user'),f.event('assistant','a2','u2','latest answer'),f.event('user','interrupt','a1','[Request interrupted by user]')]
+  const parsed=parseMessages(rows)
+  assert.deepEqual(parsed.map(m=>m.text),['hello from CLI','native reply','latest user','latest answer'])
+  assert.equal(parsed[1].status,'stopped');assert.equal(parsed[3].status,'done')
+})
+
 test('topology metadata keeps chat text compact while native replay retains the exact original selection snapshot',t=>{
   const f=fixture(t);f.history.sync(f.state);const s=f.state.sessions[0];f.history.hydrate(s)
   const selection={displayText:'解释这个模块',requests:[{revision:'original',targets:[{kind:'node',id:'billing'}],action:'question',text:'解释这个模块',summary:'订单计费'}],context:'原始拓扑快照：billing → storage'}

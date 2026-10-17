@@ -19,6 +19,8 @@ try{
   await send('FINAL_RETRY_RECOVER')
   await page.getByRole('status').filter({hasText:'额外重试 1/3'}).waitFor()
   assert.equal(await page.locator('.error-box').count(),0)
+  await page.locator('.thinking').waitFor({timeout:20000})
+  assert.equal(await page.locator('.gateway-retry').count(),0,'Thinking output must replace the extra retry notice before the turn finishes')
   await settled();assert.equal((await active()).messages.at(-1).status,'done');assert.equal(attempts('FINAL_RETRY_RECOVER').length,3);timing(attempts('FINAL_RETRY_RECOVER'))
   const nativeId=(await active()).nativeId
   await send('FINAL_RETRY_FAIL');await settled()

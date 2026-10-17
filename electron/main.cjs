@@ -22,7 +22,7 @@ const {modelImageInput,TEXT_ONLY_PROMPT}=require('./model-image-input.cjs')
 const {TopologyService}=require('./topology.cjs')
 const {CompletionAlerts,validateAlertPreferences}=require('./completion-alerts.cjs')
 const {mainEvent,observeRunEvent,finishDisposition,agentProgress}=require('./run-lifecycle.cjs')
-const {nextFinalRetry,DELAY_MS}=require('./final-error-retry.cjs')
+const {nextFinalRetry,clearFinalRetryOnOutput,DELAY_MS}=require('./final-error-retry.cjs')
 
 if (process.env.CLAUDE_GUI_DATA_DIR) app.setPath('userData', process.env.CLAUDE_GUI_DATA_DIR)
 app.setName('Claude Workspace')
@@ -258,6 +258,7 @@ function receiveEvent(id, connection, event) {
   if(!state.sessions.some(s=>s.id===id))return
   let run = connection.current
   if (!run) return
+  clearFinalRetryOnOutput(run.message,event)
   const session = sessionById(id)
   turnChanges.observe(run.changeTracker,event)
   if (run.completed && !run.stopped && mainEvent(event) && ((event.type === 'system' && event.subtype === 'session_state_changed' && event.state && event.state !== 'idle') || event.type === 'assistant' || event.type==='control_request'||event.type==='stream_event'&&event.event?.type==='message_start')) {
