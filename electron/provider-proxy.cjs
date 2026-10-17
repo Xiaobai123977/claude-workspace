@@ -10,6 +10,9 @@ const {adaptImages}=require('./image-references.cjs')
 function endpoint(base, protocol) {
   const u = new URL(base)
   let p = u.pathname.replace(/\/+$/, '').replace(/\/(messages|chat\/completions|responses|models)$/, '')
+  // DeepSeek's root is OpenAI-compatible; Messages lives under /anthropic/v1.
+  // Match only the official host and known bases, preserving custom prefixes.
+  if (u.hostname === 'api.deepseek.com' && protocol === 'anthropic' && ['', '/v1', '/anthropic'].includes(p)) p = '/anthropic/v1'
   if (!p || p === '/') p = '/v1'
   u.pathname = p + ({ anthropic: '/messages', chat: '/chat/completions', responses: '/responses' }[protocol])
   return u.href

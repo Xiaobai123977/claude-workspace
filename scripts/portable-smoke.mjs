@@ -1,6 +1,6 @@
 // Launch the self-extracting EXE from an unrelated directory with isolated application data.
 import {chromium} from 'playwright'
-import {spawn} from 'node:child_process'
+import {spawn,execFileSync} from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -33,4 +33,7 @@ try{
 }finally{
   if(page&&!closed&&!page.isClosed())await page.evaluate(()=>window.workspace.window('close')).catch(()=>{})
   if(browser)await browser.close().catch(()=>{})
+  // Closing the window now keeps the app in the tray. Stop only this isolated
+  // smoke-test process tree so it cannot leave a background test instance.
+  if(child.exitCode===null)try{execFileSync('taskkill',['/PID',String(child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'})}catch{}
 }

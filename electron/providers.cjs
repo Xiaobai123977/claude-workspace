@@ -126,6 +126,8 @@ class ProvidersService {
   headers(p) { return { 'Content-Type': 'application/json', ...p.headers, ...(p.auth === 'none' ? {} : p.auth === 'api-key' ? { 'x-api-key': p.key } : { Authorization: `Bearer ${p.key}` }), ...(p.protocol === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {}) } }
   async discoverKey(input,keyId) {
     const p = this.resolve(input,keyId), url = new URL(endpoint(p.baseUrl, p.protocol)); url.pathname = url.pathname.replace(/\/(messages|chat\/completions|responses)$/, '/models')
+    // The official catalog belongs to the root API, independent of Messages.
+    if(url.hostname==='api.deepseek.com'&&['/anthropic/models','/anthropic/v1/models'].includes(url.pathname))url.pathname='/models'
     const models = [], seen = new Set()
     for (let page = 0; page < 20; page++) {
       const r = await this.fetcher(url, { headers: this.headers(p), redirect: 'error', signal: AbortSignal.timeout(15000) })

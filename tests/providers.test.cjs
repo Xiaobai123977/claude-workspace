@@ -34,6 +34,21 @@ test('endpoint normalization preserves prefixes and does not duplicate version o
   assert.equal(endpoint('https://host/api/v1/messages','responses'),'https://host/api/v1/responses')
   assert.equal(endpoint('https://host/v4/chat/completions','chat'),'https://host/v4/chat/completions')
 })
+
+test('DeepSeek official Messages uses its Anthropic prefix without rewriting custom providers or model IDs',async t=>{
+  for(const base of ['https://api.deepseek.com','https://api.deepseek.com/v1','https://api.deepseek.com/anthropic','https://api.deepseek.com/anthropic/v1','https://api.deepseek.com/anthropic/v1/messages'])assert.equal(endpoint(base,'anthropic'),'https://api.deepseek.com/anthropic/v1/messages')
+  assert.equal(endpoint('https://api.deepseek.com','chat'),'https://api.deepseek.com/v1/chat/completions')
+  assert.equal(endpoint('https://api.deepseek.com/custom','anthropic'),'https://api.deepseek.com/custom/messages')
+  assert.equal(endpoint('https://api.deepseek.com.example.org','anthropic'),'https://api.deepseek.com.example.org/v1/messages')
+  const f=fixture(async url=>{
+    assert.equal(String(url),'https://api.deepseek.com/models')
+    return Response.json({data:[{id:'deepseek-flash',name:'DeepSeek-V4.1-Flash',effort:{supported_levels:['low','high','max']}}]})
+  });t.after(()=>fs.rmSync(f.root,{recursive:true,force:true}))
+  const result=await f.service.discover({...base(),baseUrl:'https://api.deepseek.com',protocol:'anthropic'})
+  const model=result.models.find(m=>m.id==='deepseek-flash')
+  assert.equal(model.name,'DeepSeek-V4.1-Flash')
+  assert.equal(convertRequest({max_tokens:64,messages:[{role:'user',content:'hello'}]},{...base(),protocol:'anthropic',model:model.id,models:[model]}).model,'deepseek-flash')
+})
 test('concurrent runtime creation shares one proxy and deleted connections cannot be resolved',async t=>{
   const f=fixture();t.after(()=>{f.service.close();fs.rmSync(f.root,{recursive:true,force:true})})
   const p=f.service.save(base()),[a,b]=await Promise.all([f.service.runtime(p.id,'model-a','low'),f.service.runtime(p.id,'model-a','low')])

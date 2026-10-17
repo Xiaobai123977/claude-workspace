@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, safeStorage, Menu, Notification } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, safeStorage, Menu, Notification, powerMonitor, Tray } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
@@ -23,6 +23,8 @@ const {TopologyService}=require('./topology.cjs')
 const {CompletionAlerts,validateAlertPreferences}=require('./completion-alerts.cjs')
 const {mainEvent,observeRunEvent,finishDisposition,agentProgress}=require('./run-lifecycle.cjs')
 const {nextFinalRetry,clearFinalRetryOnOutput,DELAY_MS}=require('./final-error-retry.cjs')
+const {installWindowRendering}=require('./window-rendering.cjs')
+const {installDesktopTray}=require('./desktop-tray.cjs')
 
 if (process.env.CLAUDE_GUI_DATA_DIR) app.setPath('userData', process.env.CLAUDE_GUI_DATA_DIR)
 app.setName('Claude Workspace')
@@ -30,7 +32,7 @@ if(!process.env.CLAUDE_GUI_DATA_DIR)app.setPath('userData',path.join(app.getPath
 const initialCwd=()=>process.env.CLAUDE_GUI_INITIAL_CWD||(app.isPackaged?app.getPath('documents'):process.cwd())
 if (!app.requestSingleInstanceLock()) { app.quit(); return }
 let win, state, storage, timer, configuration, extensions, providers, operations, scheduler, browser, sharedHistory, historyTimer,turnChanges
-let topology
+let topology,desktopTray
 let extensionRevision = 0, extensionQueue = Promise.resolve()
 function buildFingerprint() {
   const files = [path.join(__dirname, '../dist/index.html'), ...fs.readdirSync(__dirname).filter(f => f.endsWith('.cjs')).sort().map(f => path.join(__dirname, f))]
@@ -45,9 +47,7 @@ app.on('second-instance', () => {
   if (win.isMinimized()) win.restore()
   win.show(); win.focus()
   if (buildFingerprint() !== loadedBuild && !runs.size && !starting.size) {
-    // The window's unsaved-change guard can cancel close. Relaunch only once it actually closes.
-    if (!restartPending) { restartPending = true; win.once('closed', () => app.relaunch()) }
-    win.close()
+    if (!restartPending) { restartPending = true; desktopTray.quit(true) }
   }
 })
 const runs = new Map(), connections = new Map(), attachmentRegistry = new Map(), starting = new Set()
@@ -832,10 +832,14 @@ app.whenReady().then(() => {
   handle('workspace:open', id => shell.openPath(sessionById(id).cwd))
   handle('link:open', url => { if (typeof url === 'string' && /^https?:\/\//.test(url)) return shell.openExternal(url); throw new Error('无效链接') })
   handle('window:action', action => { if (action === 'minimize') win.minimize(); if (action === 'maximize') win.isMaximized() ? win.unmaximize() : win.maximize(); if (action === 'close') win.close() })
-  win = new BrowserWindow({ width: 1440, height: 960, minWidth: 900, minHeight: 620, frame: false, backgroundColor: '#181818', show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } })
+  win = new BrowserWindow({ width: 1440, height: 960, minWidth: 900, minHeight: 620, frame: false, backgroundColor: '#181818', show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false } })
   win.removeMenu()
+  desktopTray=installDesktopTray({app,window:win,Tray,Menu,nativeImage})
   installEditMenu(win,Menu)
   browser=new BrowserService({window:win,projectRoot:id=>sessionById(id).cwd,userData:app.getPath('userData'),isEnabled:id=>!!state.sessions.find(s=>s.id===id)?.browserEnabled&&!state.sessions.find(s=>s.id===id)?.options?.safeMode,onChange:(id,value)=>win.webContents.send('browser:state',id,value)})
+  installWindowRendering(win,{powerMonitor,logFile:path.join(app.getPath('userData'),'diagnostics','window-rendering.jsonl'),onForeground:()=>{
+    if(browser.visible){browser.layout(browser.visible,browser.bounds);const page=browser.pages.get(browser.visible);if(page&&!page.view.webContents.isDestroyed())page.view.webContents.invalidate()}
+  }})
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' } })
   win.webContents.on('will-navigate', event => event.preventDefault())
   win.once('ready-to-show', () => { win.show(); win.focus() })
