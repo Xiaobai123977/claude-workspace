@@ -1,6 +1,6 @@
 import type { GatewayRetry, NativeCommand } from './types'
 import type { SettingsSection } from './SettingsPage'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import ReactMarkdown, {defaultUrlTransform} from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -82,7 +82,7 @@ function RetryNotice({items}: {items:GatewayRetry[]}) {
   return <div className="gateway-retry" role="status" aria-live="polite"><RefreshCw size={12} className={retry.phase==='attempting'?'spin':''}/><span>{reason} · {retry.phase==='requesting'?`已等待 ${elapsed} 秒`:retry.phase==='waiting'&&seconds>0?`${seconds} 秒后重试 ${retry.attempt}/${retry.maxRetries}`:`正在重试 ${retry.attempt}/${retry.maxRetries}`}{retry.timeoutAt?` · 本次超时剩余 ${remaining} 秒`:''}{retry.providerName?` · ${retry.providerName} / ${retry.keyName}`:''}{items.length>1?` · 另有 ${items.length-1} 个请求等待响应或重试`:''}</span></div>
 }
 type AnswerVersion = {sessionId:string;messageId:string}
-function MessageView({ message, sessionId, disabled, canRegenerate, versions, onVersion, onBranch, onRegenerate, onChanges, onOpenLink }: { message: Message; sessionId: string; disabled:boolean;canRegenerate:boolean;versions:AnswerVersion[];onVersion(version:AnswerVersion):void;onBranch():void;onRegenerate():void;onChanges():void; onOpenLink(url:string):void }) {
+function MessageView({ message, sessionId, disabled, canRegenerate, retry = false, versions, onVersion, onBranch, onRegenerate, onChanges, onOpenLink }: { message: Message; sessionId: string; disabled:boolean;canRegenerate:boolean;retry?:boolean;versions:AnswerVersion[];onVersion(version:AnswerVersion):void;onBranch():void;onRegenerate():void;onChanges():void; onOpenLink(url:string):void }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => { await navigator.clipboard.writeText(message.text); setCopied(true); setTimeout(() => setCopied(false), 1500) }
   const usage = message.usage
@@ -111,7 +111,7 @@ function MessageView({ message, sessionId, disabled, canRegenerate, versions, on
       {message.error && <div className="error-box"><AlertCircle size={16}/><div><span>{/522|Connection timed out/i.test(message.error) ? '模型服务连接超时（522）。请稍后发送消息重试，当前会话已保留。' : message.error.length > 350 ? message.error.slice(0, 250) + '…' : message.error}</span>{message.error.length > 350 && <details className="error-details"><summary>查看完整错误</summary><pre>{message.error}</pre></details>}</div></div>}
       {message.status === 'stopped' && <div className="notice">已停止 · 已完成的工作与会话会保留</div>}
       {message.role==='user'&&<div className="checkpoint-actions message-inline-actions"><button title="从这里创建分支" aria-label="从这里创建分支" disabled={disabled} onClick={onBranch}><GitBranch size={14}/></button></div>}
-      {message.role === 'assistant' && message.status !== 'running' && <div className="message-footer"><button title="复制回复" aria-label="复制回复" onClick={() => void copy()}>{copied ? <Check size={14}/> : <Copy size={14}/>}</button><button title="从这里创建分支" aria-label="从这里创建分支" disabled={disabled} onClick={onBranch}><GitBranch size={14}/></button><button title="重新回答此问题，保留旧回答；不会回退项目文件" aria-label="重新生成" disabled={disabled||!canRegenerate} onClick={onRegenerate}><RotateCcw size={14}/></button>{versions.length>1&&<div className="answer-versions" role="group" aria-label="回答版本"><button aria-label="上一个回答版本" title="上一个回答版本" disabled={disabled||versionIndex<=0} onClick={()=>onVersion(versions[versionIndex-1])}><ChevronLeft size={13}/></button><span>{versionIndex+1} / {versions.length}</span><button aria-label="下一个回答版本" title="下一个回答版本" disabled={disabled||versionIndex<0||versionIndex>=versions.length-1} onClick={()=>onVersion(versions[versionIndex+1])}><ChevronRight size={13}/></button></div>}<span>{message.model || ''}</span>{usage && <span>{tokenTotal(usage).toLocaleString()} tokens{usage.duration ? ` · ${(usage.duration / 1000).toFixed(1)}s` : ''}</span>}</div>}
+      {message.role === 'assistant' && message.status !== 'running' && <div className="message-footer"><button title="复制回复" aria-label="复制回复" onClick={() => void copy()}>{copied ? <Check size={14}/> : <Copy size={14}/>}</button><button title="从这里创建分支" aria-label="从这里创建分支" disabled={disabled} onClick={onBranch}><GitBranch size={14}/></button><button title={retry?'在当前会话重试，不创建新的聊天文件':'生成新的回答版本，保留旧回答；不会回退项目文件'} aria-label={retry?'重试':'重新生成'} disabled={disabled||!canRegenerate} onClick={onRegenerate}><RotateCcw size={14}/></button>{versions.length>1&&<div className="answer-versions" role="group" aria-label="回答版本"><button aria-label="上一个回答版本" title="上一个回答版本" disabled={disabled||versionIndex<=0} onClick={()=>onVersion(versions[versionIndex-1])}><ChevronLeft size={13}/></button><span>{versionIndex+1} / {versions.length}</span><button aria-label="下一个回答版本" title="下一个回答版本" disabled={disabled||versionIndex<0||versionIndex>=versions.length-1} onClick={()=>onVersion(versions[versionIndex+1])}><ChevronRight size={13}/></button></div>}<span>{message.model || ''}</span>{usage && <span>{tokenTotal(usage).toLocaleString()} tokens{usage.duration ? ` · ${(usage.duration / 1000).toFixed(1)}s` : ''}</span>}</div>}
     </div>
   </article>
 }
@@ -156,7 +156,7 @@ function App() {
   const [renameId,setRenameId]=useState<string|null>(null)
   const [rename, setRename] = useState('')
   const [resumeId, setResumeId] = useState('')
-  const inputRef = useRef<HTMLTextAreaElement>(null), scrollRef = useRef<HTMLDivElement>(null), stickToEnd = useRef(true)
+  const inputRef = useRef<HTMLTextAreaElement>(null), scrollRef = useRef<HTMLDivElement>(null), stickToEnd = useRef(true), lastScrollTop = useRef(0)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const error = (e: unknown) => { setToast(e instanceof Error ? e.message : String(e)); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 7000) }
   const run = async (fn: () => Promise<unknown>) => { try { await fn() } catch (e) { error(e) } }
@@ -172,7 +172,7 @@ function App() {
   const running = session?.messages.some(m => m.status === 'running') || false
   useEffect(() => {
     if (!session) return
-    setChatContext(null);setProjectContext(null);setMenu(''); setFiles([]); setSkills([]); stickToEnd.current = true
+    setChatContext(null);setProjectContext(null);setMenu(''); setFiles([]); setSkills([])
     let cancelled = false
     void api.projectFiles(session.id).then(v => { if (!cancelled) setFiles(v) }).catch(error)
     void api.skills(session.id).then(v => { if (!cancelled) setSkills(v) }).catch(error)
@@ -184,7 +184,22 @@ function App() {
     void api.commands(session.id).then(items=>{if(active)setCommandCatalog({id:session.id,items})}).catch(e=>{if(active)setCommandIssue(e.message)}).finally(()=>{if(active)setCommandsLoading(false)})
     return()=>{active=false}
   },[menu,session?.id,commandRevision])
-  useEffect(() => { if (stickToEnd.current && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [session?.messages])
+  const chatVisible=!settingsOpen&&!extensionsOpen&&!plansOpen
+  useLayoutEffect(()=>{
+    if(!chatVisible)return
+    stickToEnd.current=true
+    const el=scrollRef.current
+    if(el)el.scrollTop=el.scrollHeight
+  },[session?.id,chatVisible])
+  useLayoutEffect(() => { if (stickToEnd.current && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [session?.messages,chatVisible])
+  useEffect(()=>{
+    const el=scrollRef.current,content=el?.firstElementChild
+    if(!chatVisible||!el||!content)return
+    // Markdown, images and panel resizing may change height after React commits.
+    const observer=new ResizeObserver(()=>{if(stickToEnd.current)el.scrollTop=el.scrollHeight})
+    observer.observe(content);observer.observe(el)
+    return()=>observer.disconnect()
+  },[session?.id,chatVisible,!!session?.messages.length])
   useEffect(()=>{const target=answerFocus.current;if(!target||target.sessionId!==session?.id)return;const node=Array.from(document.querySelectorAll<HTMLElement>('[data-message-id]')).find(el=>el.dataset.messageId===target.messageId);if(node){stickToEnd.current=false;node.scrollIntoView({block:'center'});answerFocus.current=null}},[session?.id,session?.messages])
   useEffect(() => {
     if (menu !== 'files' || !session) return
@@ -451,8 +466,8 @@ function App() {
         </div>{!project.collapsed&&visible.filter(s=>s.cwd===cwd&&!s.pinned).map(chatRow)}</section>})}{!visible.length && <div className="sidebar-empty">{filter ? '没有匹配的聊天' : archived?'暂无归档聊天':groups.length?'':'点击添加项目开始'}</div>}</div>
       <button className="add-project" onClick={() => void run(chooseProject)}><Plus size={16}/>添加项目</button><div className="sidebar-status"><span className={`status-dot ${(session.providerId?probe?.path:probe?.loggedIn) ? 'online' : ''}`}/><span>{session.providerId?(probe?.path?'自定义 API · CLI 已就绪':'请检查 CLI 安装'):probe ? probe.loggedIn ? 'Claude 已连接' : 'Claude 未登录' : '检测 Claude…'}</span><button title="连接状态" aria-label="连接状态" onClick={() => setModal('status')}><ChevronRight size={13}/></button></div></aside>}
       <main className="main"><div className="chat-header"><div><span className="breadcrumb">{leaf(session.cwd)}</span>{session.messages.length > 0 && <><ChevronRight size={13}/><span className="chat-title">{session.title}</span></>}</div><div className="chat-actions"><button title="业务拓扑" aria-label="业务拓扑" onClick={()=>openWorkbench("topology")}><GitBranch size={17}/></button><button title="内置浏览器" aria-label="内置浏览器" onClick={()=>openWorkbench("browser")}><Globe size={17}/></button><button title="代码变更" aria-label="代码变更" onClick={() => openChanges()}><FileText size={17}/></button><button title="打开项目目录" aria-label="打开项目目录" onClick={() => void run(() => api.openFolder(session.id))}><FolderOpen size={17}/></button><button title="聊天选项" aria-label="聊天选项" onClick={() => setMenu(menu === 'session' ? '' : 'session')}><MoreHorizontal size={20}/></button></div>{menu === 'session' && <div className="header-menu popover"><button onClick={() => { setRenameProject(null);setRenameId(null);setRename(session.title); setModal('rename'); setMenu('') }}><SquarePen size={16}/>重命名</button><button disabled={running} onClick={() => void run(() => patchSession({ archived: !session.archived }))}><Archive size={16}/>{session.archived ? '取消归档' : '归档聊天'}</button><button onClick={() => { setModal('usage'); setMenu('') }}><Gauge size={16}/>使用情况</button><button disabled={running} onClick={()=>void run(()=>patchSession({model:'',effort:'',permission:''}))}><RefreshCw size={16}/>重置模型、思考与权限</button><button onClick={()=>openWorkbench('diagnostics')}><Monitor size={16}/>会话与诊断</button></div>}</div>
-      <div className="chat-scroll" ref={scrollRef} onScroll={e => { const el = e.currentTarget; stickToEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120 }}>
-        {session.messages.length === 0 ? <div className="welcome"><Mark/><h1>我们应该在 <span>{leaf(session.cwd)}</span> 中做些什么？</h1><p>和 Claude 一起，让想法成为现实。</p><div className="suggestions"><button onClick={() => { setDraft({ text: '先浏览这个项目，介绍它的结构和开发方式。' }); inputRef.current?.focus() }}><Folder size={16}/>了解这个项目</button><button onClick={() => { setDraft({ text: '检查当前代码，找出最值得修复的问题。' }); inputRef.current?.focus() }}><Search size={16}/>检查代码</button><button onClick={() => { setDraft({ text: '帮我规划下一步实现，先提出方案。' }); inputRef.current?.focus() }}><Brain size={16}/>制定计划</button></div></div> : <div className="messages">{session.messages.map(m => <MessageView key={m.id} message={m} sessionId={session.id} disabled={busy||running} canRegenerate={session.messages.slice(0,session.messages.indexOf(m)).some(p=>p.role==='user')} versions={answerVersions(m.id)} onVersion={selectAnswerVersion} onBranch={()=>messageAction(m.id,'branch')} onRegenerate={()=>messageAction(m.id,'regenerate')} onChanges={()=>openChanges(m.id)} onOpenLink={openChatLink}/>)}</div>}
+      <div className="chat-scroll" ref={scrollRef} onScroll={e => { const el = e.currentTarget; const nearEnd=el.scrollHeight-el.scrollTop-el.clientHeight<120; if(el.scrollTop<lastScrollTop.current||nearEnd)stickToEnd.current=nearEnd; lastScrollTop.current=el.scrollTop }}>
+        {session.messages.length === 0 ? <div className="welcome"><Mark/><h1>我们应该在 <span>{leaf(session.cwd)}</span> 中做些什么？</h1><p>和 Claude 一起，让想法成为现实。</p><div className="suggestions"><button onClick={() => { setDraft({ text: '先浏览这个项目，介绍它的结构和开发方式。' }); inputRef.current?.focus() }}><Folder size={16}/>了解这个项目</button><button onClick={() => { setDraft({ text: '检查当前代码，找出最值得修复的问题。' }); inputRef.current?.focus() }}><Search size={16}/>检查代码</button><button onClick={() => { setDraft({ text: '帮我规划下一步实现，先提出方案。' }); inputRef.current?.focus() }}><Brain size={16}/>制定计划</button></div></div> : <div className="messages">{session.messages.map(m => <MessageView key={m.id} message={m} sessionId={session.id} disabled={busy||running} retry={m===session.messages.at(-1)&&['error','stopped'].includes(m.status)} canRegenerate={session.messages.slice(0,session.messages.indexOf(m)).some(p=>p.role==='user')} versions={answerVersions(m.id)} onVersion={selectAnswerVersion} onBranch={()=>messageAction(m.id,'branch')} onRegenerate={()=>messageAction(m.id,'regenerate')} onChanges={()=>openChanges(m.id)} onOpenLink={openChatLink}/>)}</div>}
       </div>
       <div className="composer-area"><div className="composer-container">
         {menu==='commands'&&<CommandMenu searching={!!commandQuery} entries={filteredCommands.map(c=>({...c,disabled:running||c.disabled}))} index={menuIndex} loading={commandsLoading} error={commandIssue} onIndex={setMenuIndex} onPick={executeCommand} onRefresh={()=>setCommandRevision(v=>v+1)}/>}

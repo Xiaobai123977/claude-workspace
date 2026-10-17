@@ -14,7 +14,7 @@ const { ProvidersService } = require('./providers.cjs')
 const { OperationsService, Scheduler } = require('./operations.cjs')
 const {BrowserService}=require('./browser.cjs')
 const {SharedHistory}=require('./shared-history.cjs')
-const {planMessageAction,regenerationOrigin}=require('./message-actions.cjs')
+const {planMessageAction,regenerationOrigin,failedRetryInput}=require('./message-actions.cjs')
 const {contextKey,normalizeContext,sessionUsage}=require('./token-usage.cjs')
 const {installEditMenu}=require('./edit-menu.cjs')
 const {TurnChanges}=require('./turn-changes.cjs')
@@ -615,6 +615,12 @@ app.whenReady().then(() => {
   })
   handle('session:regenerate',async(id,messageId)=>{
     assertIdle(id);const source=sessionById(id);sharedHistory.hydrate(source)
+    const retryUser=failedRetryInput(source,messageId)
+    if(retryUser){
+      const prompt=sharedHistory.replayInput(source,retryUser,image=>providers.imageReferences.reference(image))
+      await startTurn(id,prompt,[],retryUser.browserContexts||[],{attachments:retryUser.attachments||[],topologySelection:retryUser.topologySelection})
+      notify(true);return source
+    }
     const origin=regenerationOrigin(source,messageId)
     const siblings=state.sessions.filter(s=>s.regeneration?.origin.sessionId===origin.sessionId&&s.regeneration.origin.messageId===origin.messageId)
     for(const s of siblings)assertIdle(s.id)

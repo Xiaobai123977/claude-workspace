@@ -19,4 +19,13 @@ function planMessageAction(session,messageId,action) {
 function regenerationOrigin(session,messageId){
   return session.regeneration?.answerId===messageId?{...session.regeneration.origin}:{sessionId:session.id,messageId}
 }
-module.exports={planMessageAction,regenerationOrigin}
+function failedRetryInput(session,messageId){
+  const index=session.messages.findIndex(m=>m.id===messageId),message=session.messages[index]
+  // Retrying a failed last turn continues its native transcript. Older answers
+  // still need a branch so later conversation context cannot leak into them.
+  if(index!==session.messages.length-1||message?.role!=='assistant'||!['error','stopped'].includes(message.status))return null
+  const user=session.messages.slice(0,index).findLast(m=>m.role==='user')
+  if(!user)throw new Error('找不到这条回答对应的问题')
+  return structuredClone(user)
+}
+module.exports={planMessageAction,regenerationOrigin,failedRetryInput}

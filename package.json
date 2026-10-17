@@ -16,6 +16,7 @@
     "test:chat-context-ui": "node scripts/chat-context-ui-test.mjs",
     "test:shared-history-ui": "node scripts/shared-history-ui-test.mjs",
     "test:message-actions-ui": "node scripts/message-actions-ui-test.mjs",
+    "test:chat-scroll-ui": "node scripts/chat-scroll-ui-test.mjs",
     "test:usage-ui": "node scripts/usage-ui-test.mjs",
     "test:navigation-ui": "node scripts/navigation-audit-ui-test.mjs",
     "test:commands-ui": "node scripts/commands-ui-test.mjs",

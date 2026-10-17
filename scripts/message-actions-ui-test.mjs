@@ -9,12 +9,14 @@ const require=createRequire(import.meta.url),root=path.resolve(import.meta.dirna
 for(const p of [data,profile,cwd])fs.mkdirSync(p)
 fs.writeFileSync(path.join(cwd,'keep.txt'),'project unchanged')
 const requests=[],errors=[],id='message-actions-root'
+let failNext=false
 const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({data:[{id:'fixture-model'}]}));return}
   let raw='';for await(const c of req)raw+=c
   const body=JSON.parse(raw),lastUser=body.messages.filter(m=>m.role==='user').at(-1),blocks=typeof lastUser?.content==='string'?[lastUser.content]:(lastUser?.content||[]).map(b=>b.text||'')
   const isAnswer=blocks.some(text=>text.trim().startsWith('QUESTION_'))
   if(isAnswer)requests.push(body)
+  if(isAnswer&&failNext){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:{message:'fixture request failure',type:'invalid_request_error'}}));return}
   const answer=isAnswer?'ANSWER_'+requests.length:'Fixture auxiliary response'
   res.writeHead(200,{'Content-Type':'text/event-stream'})
   for(const e of [{choices:[{delta:{content:answer},finish_reason:'stop'}]},{choices:[],usage:{prompt_tokens:10,completion_tokens:5}}])res.write('data: '+JSON.stringify(e)+'\n\n')
@@ -68,6 +70,17 @@ try{
   // Version links survive reload, while original and later answers remain intact.
   await select(regenerated.id);await article(newAnswer.id).getByText('2 / 3',{exact:true}).waitFor();await select(id)
   const unchanged=await active();assert.ok(unchanged.messages.some(m=>m.text==='ANSWER_1'));assert.ok(unchanged.messages.some(m=>m.text==='ANSWER_2'));assert.ok(unchanged.messages.some(m=>m.text==='ANSWER_6'))
+  // A failed final answer retries inside the existing GUI/native conversation.
+  failNext=true
+  await page.evaluate(id=>window.workspace.send(id,'QUESTION_RETRY_FAILED',[]),id)
+  await page.getByRole('button',{name:'重试',exact:true}).waitFor({timeout:60000})
+  const failed=await active(),beforeRetry=await state(),files=()=>fs.readdirSync(path.dirname(failed.nativeFile)).filter(f=>f.endsWith('.jsonl')).sort(),beforeFiles=files()
+  assert.equal(failed.messages.at(-1).status,'error')
+  failNext=false
+  await article(failed.messages.at(-1).id).getByRole('button',{name:'重试',exact:true}).click()
+  const retried=await finish('ANSWER_'+(requests.length+1))
+  assert.equal(retried.id,id);assert.equal(retried.nativeId,nativeId);assert.equal(retried.nativeFile,failed.nativeFile)
+  assert.equal((await state()).sessions.length,beforeRetry.sessions.length);assert.deepEqual(files(),beforeFiles)
   assert.equal(fs.readFileSync(path.join(cwd,'keep.txt'),'utf8'),'project unchanged');assert.deepEqual(errors,[])
-  console.log('Message actions passed: native CLI, inline user/answer branches, exact regeneration context, independent native IDs, old answers and later turns preserved, version navigation and reload, attachments and element context replayed once. Local fixture only: '+base)
+  console.log('Message actions passed: native CLI, inline branches, exact regeneration context, version navigation/reload, attachment replay, failed last turn retries with unchanged chat ID, native ID, transcript file and session/file counts. Local fixture only: '+base)
 }finally{await app?.close().catch(()=>{});server.closeAllConnections();server.close()}
