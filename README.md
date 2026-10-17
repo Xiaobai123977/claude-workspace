@@ -20,6 +20,12 @@
 
 需要 Node.js 22.12+（推荐 24）和已安装的 Claude Code。可以沿用本机登录，也可以在应用中配置独立 API 连接。
 
+Windows 可先双击 **`Check-Environment.cmd`**，检查 Git、Node.js 和 Claude CLI。缺少或版本不符合时逐项询问是否安装，输入 `y` 确认，直接回车跳过；通过 WinGet 安装，保留安装器的许可与系统授权提示。没有 WinGet 时提供官方安装地址。
+
+也可以[单独下载环境检查工具包](https://github.com/Xiaobai123977/claude-workspace/releases/latest/download/Claude-Workspace-Environment-Check.zip)，解压后运行。详见 [Windows 环境检查说明](docs/windows-environment.md)。
+
+双击 **`Run-Claude.cmd`** 会先检查环境，再启动；源码首次启动会询问是否运行 `npm ci` 安装项目依赖。脚本在安装后刷新当前进程的 PATH 并重新检查，不会更改 Claude 的账户、供应商或权限配置。`Check-Environment.cmd -NoPrompt` 可仅检查、不询问也不安装；安装版 GUI 本身无需 Node.js，此脚本按完整开发环境检查三项工具。
+
 ```powershell
 npm install
 npm start
