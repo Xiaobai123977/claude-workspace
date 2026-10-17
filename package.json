@@ -34,6 +34,7 @@
     "test:approvals-ui": "node scripts/approvals-ui-test.mjs",
     "test:extensions-ui": "node scripts/extensions-ui-test.mjs",
     "test:settings-ui": "node scripts/settings-ui-test.mjs",
+    "test:settings-dirty-ui": "node scripts/settings-dirty-ui-test.mjs",
     "test:workbench-ui": "node scripts/workbench-ui-test.mjs",
     "test:gateway-retry-ui": "node scripts/gateway-retry-ui-test.mjs",
     "test:final-error-retry-ui": "node scripts/final-error-retry-ui-test.mjs",

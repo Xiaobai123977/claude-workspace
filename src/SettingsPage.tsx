@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Configuration, ConfigScope, ConfigValue, Instruction, Preferences, Probe, Session, State } from './types'
 import './settings.css'
+import {sameSettingValue} from './setting-values'
 const SettingsFeature = React.lazy(() => import('./Workbench').then(m => ({default:m.Workbench})))
 
 const api = window.workspace
@@ -62,7 +63,7 @@ export function SettingsPage({ state, session, probe, onProbe, onClose: closePar
   const latest = useRef(0)
   const previousPreferences = useRef(state.preferences)
   const sectionInfo = sections.find(s => s.id === section)!
-  const preferenceChanges = Object.fromEntries(Object.entries(preferences).filter(([k, v]) => v !== state.preferences[k as keyof Preferences]))
+  const preferenceChanges = Object.fromEntries(Object.entries(preferences).filter(([k, v]) => !sameSettingValue(v,state.preferences[k as keyof Preferences])))
   const documentDirty = !!document && documentText !== document.content
   const changedCount = Object.values(changes).reduce((n, values) => n + Object.keys(values).length, 0)
   const [childDirty, setChildDirty] = useState(false)
@@ -97,7 +98,7 @@ export function SettingsPage({ state, session, probe, onProbe, onClose: closePar
       const next = { ...draft }
       for (const key of Object.keys(after) as (keyof Preferences)[]) {
         const value = after[key]
-        if (draft[key] === before[key] && value !== undefined) Object.assign(next, {[key]:value})
+        if (sameSettingValue(draft[key],before[key]) && value !== undefined) Object.assign(next, {[key]:value})
       }
       return next
     })
