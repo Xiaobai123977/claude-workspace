@@ -13,7 +13,7 @@ function refreshModel(reported,old){
 }
 function resolvedModel(provider,model,effort=''){
   const request=model.request||{}
-  return {...provider,model:model.id,models:[model],effort:effort||model.defaultEffort||'',thinking:request.thinkingMode??provider.thinking,thinkingBudget:request.thinkingBudget??provider.thinkingBudget,outputTokenField:request.outputTokenField??provider.outputTokenField,timeout:request.timeout??provider.timeout,effortField:request.effortField||'auto',effortMap:request.effortMap||{},extraBody:{...provider.extraBody,...request.extraBody}}
+  return {...provider,model:model.id,models:[model],effort:effort||model.defaultEffort||'',thinking:request.thinkingMode??provider.thinking,thinkingBudget:request.thinkingBudget??provider.thinkingBudget,outputTokenField:request.outputTokenField??provider.outputTokenField,timeout:request.timeout??(provider.timeoutMode==='unlimited'?0:provider.timeout),effortField:request.effortField||'auto',effortMap:request.effortMap||{},extraBody:{...provider.extraBody,...request.extraBody}}
 }
 function hasImages(body){return !!body?.messages?.some(m=>Array.isArray(m.content)&&m.content.some(b=>b.type==='image'||b.type==='tool_result'&&Array.isArray(b.content)&&b.content.some(c=>c.type==='image')))}
 function windowPolicy(routes){

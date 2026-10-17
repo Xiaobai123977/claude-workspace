@@ -86,6 +86,22 @@ test('proxy exhaustion preserves upstream wording, redacts credentials and suppr
   const response=await fetch(proxy.url+'/v1/messages',{method:'POST',headers:{'x-api-key':proxy.token},body:JSON.stringify({messages:[],stream:false})})
   assert.equal(response.headers.get('x-should-retry'),'false');assert.equal(response.status,503);assert.equal(count,3)
   const data=await response.json();assert.equal(data.error.message,'Capacity unavailable [REDACTED]');assert.ok(!JSON.stringify(data).includes('PRIVATE'))
+  assert.equal(data.error.source,'upstream_http');assert.equal(data.error.upstream_status,503)
+})
+
+test('HTTP-200 error bodies and local cooldowns are not presented as upstream HTTP 503',async t=>{
+  const upstream=await startProxy({protocol:'chat',model:'fixture',baseUrl:'http://fixture',models:[]},{},async()=>Response.json({error:{type:'api_error',message:'RAW_BODY_ERROR'}}),{retryPolicy:{...quick,maxRetries:0}})
+  t.after(()=>upstream.close())
+  const request=proxy=>fetch(proxy.url+'/v1/messages',{method:'POST',headers:{'x-api-key':proxy.token},body:JSON.stringify({messages:[],stream:false})})
+  const response=await request(upstream),data=await response.json()
+  assert.equal(response.status,502);assert.equal(data.error.source,'upstream_body');assert.equal(data.error.upstream_status,200);assert.equal(data.error.message,'RAW_BODY_ERROR')
+  const events=[]
+  let selections=0
+  const local=await startProxy({protocol:'chat',model:'fixture',baseUrl:'http://fixture',models:[]},{},async()=>{throw Error('must not call upstream')},{retryPolicy:{...quick,maxRetries:1},onRetry:event=>events.push(event),routing:{choose:()=>{throw Object.assign(Error('all routes cooling'),{routingStatus:503,retryAfterMs:1,noRetry:++selections>1})},hasAlternative:()=>false}})
+  t.after(()=>local.close())
+  const blocked=await request(local),error=(await blocked.json()).error
+  assert.equal(blocked.status,502);assert.equal(error.source,'local_router');assert.equal(error.routing_status,503);assert.equal(error.upstream_status,undefined)
+  assert.equal(events.find(e=>e.phase==='waiting').reason,'routing')
 })
 
 test('a partially streamed response is never retried', async t => {

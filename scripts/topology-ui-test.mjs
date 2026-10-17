@@ -40,7 +40,7 @@ try{
   const a=await request.boundingBox(),b=await storage.boundingBox();await page.keyboard.down('Shift');await page.mouse.move(Math.min(a.x,b.x)-8,Math.min(a.y,b.y)-8);await page.mouse.down();await page.mouse.move(Math.max(a.x+a.width,b.x+b.width)+8,Math.max(a.y+a.height,b.y+b.height)+8,{steps:8});await page.mouse.up();await page.keyboard.up('Shift');await page.getByText('已选 2 个对象',{exact:true}).waitFor()
   await page.getByRole('button',{name:'清除选择',exact:true}).click()
   if(await page.getByRole('button',{name:'收起拓扑批注窗口',exact:true}).count())await page.getByRole('button',{name:'收起拓扑批注窗口',exact:true}).click()
-  await page.getByRole('button',{name:'连接：保存业务数据',exact:true}).click();await page.getByText('连接 ID · request-storage',{exact:true}).waitFor();assert.match(await page.locator('.topology-target-details').innerText(),/已校验的业务数据/)
+  await page.getByRole('button',{name:'连接：保存业务数据',exact:true}).locator('text').click();await page.getByText('连接 ID · request-storage',{exact:true}).waitFor();assert.match(await page.locator('.topology-target-details').innerText(),/已校验的业务数据/)
   await page.getByRole('textbox',{name:'拓扑批注内容'}).fill('这个数据流为什么要先校验？')
   await page.getByRole('button',{name:'加入对话',exact:true}).click();await page.locator('.topology-context-chips').waitFor()
   assert.equal(await input.inputValue(),'这个数据流为什么要先校验？');assert.ok(!(await input.inputValue()).includes('"revision"'))
@@ -68,6 +68,10 @@ try{
   await page.getByRole('button',{name:'模块：内部步骤 1',exact:true}).dblclick();await page.getByRole('button',{name:'生成下一层拓扑',exact:true}).click();await input.press('Enter');await idle();await page.getByRole('button',{name:'模块：内部步骤 1',exact:true}).waitFor()
   refined=JSON.parse(fs.readFileSync(path.join(project,'.claude/workspace-topology.json'),'utf8'));assert.equal(refined.nodes.find(n=>n.id==='storage.step1.step1').parent,'storage.step1');assert.match(JSON.parse(fs.readFileSync(proof,'utf8')).prompt,/"moduleId": "storage.step1"/)
   await page.getByRole('button',{name:'关闭聊天工具',exact:true}).click()
+  // User-owned generated graphs are optional screenshots, not test fixtures.
+  let canCaptureRealGraph=false
+  try{const {TopologyService}=require('../electron/topology.cjs');canCaptureRealGraph=!!new TopologyService(path.join(data,'optional-notes')).read(root).graph}catch{console.log('Optional real-project screenshots skipped: working graph is invalid; isolated interaction assertions remain required.')}
+  if(canCaptureRealGraph){
   // Inspect and capture the real project's first graph, using the same isolated app profile.
   await page.evaluate(async({id,root})=>window.workspace.changeProject(id,root),{id,root})
   await page.getByRole('button',{name:'业务拓扑',exact:true}).click();await page.getByRole('button',{name:'模块：编排当前会话',exact:true}).waitFor()
@@ -75,5 +79,6 @@ try{
   await page.getByRole('button',{name:'模块：编排当前会话',exact:true}).click();await page.getByRole('textbox',{name:'拓扑批注内容'}).fill('请解释工具授权与回复事件之间的关系。');await page.screenshot({path:path.join(root,'artifacts/topology-annotation.png')})
   await page.getByRole('textbox',{name:'拓扑批注内容'}).fill('');await page.getByRole('button',{name:'展开内部拓扑',exact:true}).click();await page.getByRole('button',{name:'模块：回应工具授权',exact:true}).waitFor();await page.screenshot({path:path.join(root,'artifacts/topology-detail.png')})
   await page.getByRole('button',{name:'模块：回应工具授权',exact:true}).dblclick();await page.getByRole('button',{name:'生成下一层拓扑',exact:true}).waitFor();await page.screenshot({path:path.join(root,'artifacts/topology-refine-module.png')})
-  assert.deepEqual(errors,[]);console.log('Topology UI passed: leaf module expansion, scoped refinement, existing subtree preservation and recursive generation;  standalone full/half workspace, draggable floating annotations without shrinking canvas, draft preservation, generated graph via CLI fixture, hierarchy, exact node/edge and multi-select, compact chat context received by CLI, version-bound design approval, persistence, stale send rejection, real-project overview. No upstream requests.')
+  }
+  assert.deepEqual(errors,[]);console.log('Topology UI passed: leaf module expansion, scoped refinement, existing subtree preservation and recursive generation;  standalone full/half workspace, draggable floating annotations without shrinking canvas, draft preservation, generated graph via CLI fixture, hierarchy, exact node/edge and multi-select, compact chat context received by CLI, version-bound design approval, persistence, stale send rejection; optional real-project overview when its graph is valid. No upstream requests.')
 }finally{await app.close()}

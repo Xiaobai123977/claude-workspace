@@ -9,6 +9,82 @@ async function detectAndSave(service,input){const result=await service.discover(
 const response=(model='shared')=>Response.json({choices:[{message:{content:'Served '+model},finish_reason:'stop'}]})
 const call=runtime=>fetch(runtime.env.ANTHROPIC_BASE_URL+'/v1/messages',{method:'POST',headers:{'x-api-key':runtime.env.ANTHROPIC_API_KEY},body:JSON.stringify({messages:[{role:'user',content:'Hello'}],stream:false,max_tokens:20})})
 
+test('missing token-count endpoints never poison working generation keys or their sticky route',async t=>{
+  const seen=[];const {service}=fixture(t,async(url,init)=>{
+    seen.push({url,auth:init.headers.Authorization})
+    if(url.endsWith('/count_tokens'))return Response.json({error:{message:'count_tokens endpoint not found'}},{status:404})
+    return Response.json({content:[{type:'text',text:'generation works'}],stop_reason:'end_turn'})
+  })
+  const models=[{id:'glm-5.2'}],p=service.save({...supplier('count',[['a','PRIVATE_A'],['b','PRIVATE_B']]),protocol:'anthropic',models,defaultModel:'glm-5.2',keys:['a','b'].map((id,i)=>({id,key:i?'PRIVATE_B':'PRIVATE_A',models}))})
+  const runtime=await service.runtime(p.id,'glm-5.2','','count-chat')
+  assert.equal((await call(runtime)).status,200)
+  const original=seen.at(-1).auth
+  const count=await fetch(runtime.env.ANTHROPIC_BASE_URL+'/v1/messages/count_tokens',{method:'POST',headers:{'x-api-key':runtime.env.ANTHROPIC_API_KEY},body:JSON.stringify({messages:[{role:'user',content:'Hello'}]})})
+  assert.equal(count.status,502);assert.equal((await count.json()).error.upstream_status,404)
+  assert.equal(service.router.health.size,0)
+  assert.equal((await call(runtime)).status,200);assert.equal(seen.at(-1).auth,original)
+  assert.equal(seen.filter(r=>r.url.endsWith('/count_tokens')).length,2)
+})
+
+test('all transiently rejected model routes recover without editing settings or restarting',async t=>{
+  let now=100000,fail=true,calls=0
+  const {service}=fixture(t,async()=>{calls++;return fail?Response.json({error:{message:'temporary upstream routing miss'}},{status:404}):response()})
+  service.router.now=()=>now
+  const models=[{id:'shared'}],p=service.save({...supplier('recover',[['a','PRIVATE_A'],['b','PRIVATE_B']]),models,defaultModel:'shared',keys:['a','b'].map(id=>({id,key:'PRIVATE_'+id,models}))})
+  const runtime=await service.runtime(p.id,'shared','','recover-chat')
+  const failed=await call(runtime);assert.equal(failed.status,502);assert.equal((await failed.json()).error.upstream_status,404);assert.equal(calls,2)
+  fail=false;now+=3001
+  assert.equal((await call(runtime)).status,200);assert.equal(calls,3)
+})
+
+test('failover visits untried keys before sticky or high-weight routes, including 400/422 and do-not-retry responses',async t=>{
+  for(const status of [400,401,403,404,408,409,422,425,429,500,502,503,504,529]){
+    const seen=[];const {service}=fixture(t,async(_url,init)=>{
+      const auth=init.headers.Authorization;seen.push(auth)
+      return auth==='Bearer PRIVATE_GOOD'?response():Response.json({error:{message:'RAW_'+status}},{status,headers:{'x-should-retry':'false'}})
+    })
+    const models=[{id:'shared'}],keys=[{id:'bad',key:'PRIVATE_BAD',weight:1000,models},{id:'good',key:'PRIVATE_GOOD',weight:1,models}]
+    const p=service.save({...supplier('status'+status,[]),models,defaultModel:'shared',keys})
+    const runtime=await service.runtime(p.id,'shared','','status-chat')
+    assert.equal((await call(runtime)).status,200,'status '+status);assert.deepEqual(seen,['Bearer PRIVATE_BAD','Bearer PRIVATE_GOOD'])
+    if(![400,422].includes(status)){assert.equal((await call(runtime)).status,200);assert.equal(seen.at(-1),'Bearer PRIVATE_GOOD')}
+  }
+})
+
+test('more than eleven valid keys are reachable even when earlier keys reject the request',async t=>{
+  const seen=[];const {service}=fixture(t,async(_url,init)=>{
+    const key=init.headers.Authorization;seen.push(key)
+    return key==='Bearer PRIVATE_12'?response():Response.json({error:{message:'request incompatible'}},{status:422})
+  })
+  const models=[{id:'shared'}],keys=Array.from({length:13},(_,i)=>({id:String(i),key:'PRIVATE_'+i,weight:i===0?1000:1,models}))
+  const p=service.save({...supplier('many',[]),models,keys,defaultModel:'shared'})
+  assert.equal((await call(await service.runtime(p.id,'shared','','many-chat'))).status,200)
+  assert.equal(seen.length,13);assert.equal(new Set(seen).size,13)
+})
+
+test('successful in-flight responses clear obsolete health failures and failures have bounded leases',()=>{
+  let now=1000;const router=new ModelRouter({now:()=>now}),route={id:'p/k/m',providerId:'p',keyId:'k',revision:'1'}
+  for(const status of [401,403,404]){
+    router.report(route,{response:new Response('',{status})});assert.equal(router.available([route]).length,0)
+    assert.ok(Number.isFinite(router.availableAt(route)))
+    router.report(route,{response:Response.json({})});assert.equal(router.available([route]).length,1)
+    router.report(route,{response:new Response('',{status})});now+=30001;assert.equal(router.available([route]).length,1)
+  }
+})
+
+test('concurrent main/agent requests fail over independently without sharing attempted-route exclusions',async t=>{
+  const seen=[];const {service}=fixture(t,async(_url,init)=>{
+    const key=init.headers.Authorization;seen.push(key)
+    await new Promise(resolve=>setTimeout(resolve,key==='Bearer PRIVATE_A'?5:1))
+    return key==='Bearer PRIVATE_A'?Response.json({error:{message:'temporary miss'}},{status:404}):response()
+  })
+  const models=[{id:'shared'}],p=service.save({...supplier('concurrent',[]),models,defaultModel:'shared',keys:[{id:'a',key:'PRIVATE_A',weight:1000,models},{id:'b',key:'PRIVATE_B',models}]})
+  const runtime=await service.runtime(p.id,'shared','','main-with-agents')
+  const replies=await Promise.all(Array.from({length:24},()=>call(runtime)))
+  assert.ok(replies.every(r=>r.status===200));assert.ok(seen.includes('Bearer PRIVATE_A'));assert.ok(seen.includes('Bearer PRIVATE_B'))
+  assert.equal((await call(runtime)).status,200)
+})
+
 test('single-key network cooldown is included in the retry wait instead of consuming phantom retry attempts',async t=>{
   let calls=0;const events=[]
   const {service}=fixture(t,async(url)=>{
@@ -34,7 +110,7 @@ test('a pre-output HTTP-200 overload rotates to another key and keeps the recove
   assert.equal((await call(runtime)).status,200);assert.equal(received.at(-1),'Bearer PRIVATE_B')
 })
 
-test('an upstream model restriction remains 403 on later calls and does not disable other models on the key',async t=>{
+test('upstream restrictions retain their raw status as gateway errors without disabling other models',async t=>{
   let calls=0
   const {service}=fixture(t,async(url,init)=>{
     if(String(url).endsWith('/models'))return Response.json({data:[{id:'restricted'},{id:'working'}]})
@@ -43,8 +119,8 @@ test('an upstream model restriction remains 403 on later calls and does not disa
   })
   const p=await detectAndSave(service,supplier('a',[['a1','PRIVATE_A']]))
   const runtime=await service.runtime(p.id,'restricted','','chat')
-  const first=await call(runtime);assert.equal(first.status,403);const body=JSON.stringify(await first.json());assert.equal((JSON.parse(body)).error.message,"OpenCode's free tier can only be used from within OpenCode. [REDACTED]");assert.ok(!body.includes('PRIVATE_A'))
-  const second=await call(runtime);assert.equal(second.status,403);const repeated=JSON.stringify(await second.json());assert.match(repeated,/OpenCode/);assert.equal(calls,1)
+  const first=await call(runtime);assert.equal(first.status,502);const body=JSON.stringify(await first.json());assert.equal(JSON.parse(body).error.upstream_status,403);assert.equal(JSON.parse(body).error.source,'upstream_http');assert.equal((JSON.parse(body)).error.message,"OpenCode's free tier can only be used from within OpenCode. [REDACTED]");assert.ok(!body.includes('PRIVATE_A'))
+  const second=await call(runtime);assert.equal(second.status,502);const repeated=JSON.stringify(await second.json());assert.match(repeated,/OpenCode/);assert.equal(calls,1)
   assert.equal((await call(await service.runtime(p.id,'working','','chat'))).status,200);assert.equal(calls,2)
 })
 

@@ -3,10 +3,10 @@ import {GitBranch,RefreshCw,Users,X} from 'lucide-react'
 import type {TopologyData,TopologyDraft} from './types'
 import {normalizeTopologyModules} from './topology-selection'
 const api=window.workspace
-export type TopologyOperation={mode:'explore'|'regenerate';nodeId?:string;nodeIds?:string[];data:TopologyData}
+export type TopologyOperation={mode:'explore'|'regenerate';nodeId?:string;nodeIds?:string[];depth?:'auto';data:TopologyData}
 export function TopologyExploration({sessionId,operation,running,onClose,onReady}:{sessionId:string;operation:TopologyOperation;running:boolean;onClose():void;onReady(text:string,context:TopologyDraft,backup?:string):void}){
   const initialIds=operation.nodeIds|| (operation.nodeId?[operation.nodeId]:[])
-  const [moduleIds,setModuleIds]=useState(initialIds),[scope,setScope]=useState(initialIds.length>1?'@multiple':initialIds[0]||''),[depth,setDepth]=useState('2'),[customDepth,setCustomDepth]=useState('3'),[parallel,setParallel]=useState(true),[busy,setBusy]=useState(false),[issue,setIssue]=useState('')
+  const [moduleIds,setModuleIds]=useState(initialIds),[scope,setScope]=useState(initialIds.length>1?'@multiple':initialIds[0]||''),[depth,setDepth]=useState(operation.depth||'2'),[customDepth,setCustomDepth]=useState('3'),[parallel,setParallel]=useState(true),[busy,setBusy]=useState(false),[issue,setIssue]=useState('')
   const regenerate=operation.mode==='regenerate',nodes=operation.data.graph?.nodes||[],chosenIds=scope==='@multiple'?moduleIds:scope?[scope]:[],chosen=nodes.filter(n=>chosenIds.includes(n.id)),normalized=normalizeTopologyModules(nodes,chosenIds),label=regenerate?'重新生成':'并发探索'
   useEffect(()=>{const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();if(!busy)onClose()}};window.addEventListener('keydown',escape,true);return()=>window.removeEventListener('keydown',escape,true)},[busy,onClose])
   const submit=async()=>{
@@ -27,7 +27,7 @@ export function TopologyExploration({sessionId,operation,running,onClose,onReady
       {normalized.overlapping.length>0&&<p className="topology-operation-overlap">已选 {chosenIds.length} 个模块，合并为 {normalized.roots.length} 个探索范围。父子重叠部分只探索一次。</p>}
       <label>探索深度<select aria-label="拓扑探索深度" disabled={busy} value={depth} onChange={event=>setDepth(event.target.value)}><option value="1">1 层</option><option value="2">2 层</option><option value="custom">N 层（自定义）</option><option value="auto">模型自行判断结束</option></select></label>
       {depth==='custom'&&<label>层数<input aria-label="自定义拓扑层数" type="number" min={1} max={100} step={1} disabled={busy} value={customDepth} onChange={event=>setCustomDepth(event.target.value)}/></label>}
-      <div className="topology-operation-depth"><GitBranch size={14}/><span>{scope?'最外层选中模块的直接子模块算第 1 层。':'项目顶层业务模块算第 1 层。'}{depth==='auto'?'模型需说明停止依据及尚未核实的范围。':'已有更深且仍有效的子树会保留。'}</span></div>
+      <div className="topology-operation-depth"><GitBranch size={14}/><span>{scope?'最外层选中模块的直接子模块算第 1 层。':'项目顶层业务模块算第 1 层。'}{depth==='auto'?'逐层核实到业务叶子或外部边界，应用检查缺口并继续下一批；最多 8 批，连续两轮无进展会暂停并明确保留未完成范围。':'已有更深且仍有效的子树会保留。'}</span></div>
       {regenerate?<label className="topology-operation-parallel"><input type="checkbox" disabled={busy} checked={parallel} onChange={event=>setParallel(event.target.checked)}/>并行派出子代理探索</label>:<small>并发数量取决于当前 CLI、模型和供应商的实际能力；不可独立的任务由主模型按依赖顺序处理。</small>}
       <p className="topology-operation-note">子代理只读探索，主模型统一写图。只处理拓扑，不修改业务代码。达到图容量或运行限制时，会要求模型列明未完成范围。</p>
       {issue&&<p className="topology-error" role="alert">{issue}</p>}

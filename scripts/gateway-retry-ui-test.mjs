@@ -74,17 +74,25 @@ try{
   assert.match(exhausted.error,/PRIVATE_FIXTURE_ERROR/) // Preserve the fixture's actual upstream wording; this is not a configured credential.
   assert.equal(await page.locator('.gateway-retry').count(),0)
   mode='stream-error';requests=0
-  await page.evaluate(async()=>{const p=(await window.workspace.providers())[0];await window.workspace.saveProvider({...p,timeout:15000})})
+  await page.evaluate(async()=>{const p=(await window.workspace.providers())[0];await window.workspace.saveProvider({...p,timeout:15000,timeoutMode:'limited'})})
   await send('HTTP 200 stream-error fixture, no tools.')
   await page.locator('.gateway-retry').filter({hasText:/上游响应错误.*overloaded_error.*1\/10/}).waitFor()
   const streamRecovered=await finished();assert.equal(streamRecovered.status,'done');assert.equal(requests,2)
   mode='heartbeat';requests=0
-  await page.evaluate(async()=>{const p=(await window.workspace.providers())[0];await window.workspace.saveProvider({...p,timeout:15000})})
+  await page.evaluate(async()=>{const p=(await window.workspace.providers())[0];await window.workspace.saveProvider({...p,timeout:15000,timeoutMode:'limited'})})
   await send('Heartbeat-only stall fixture, no tools.')
   await page.locator('.gateway-retry').filter({hasText:/等待上游有效响应.*已等待.*本次超时剩余/}).waitFor({timeout:20000})
   await page.screenshot({path:path.join(root,'artifacts/gateway-response-waiting.png')})
   await page.locator('.gateway-retry').filter({hasText:/上游请求超时.*1\/10/}).waitFor({timeout:10000})
   const heartbeatRecovered=await finished();assert.equal(heartbeatRecovered.status,'done');assert.equal(requests,2)
+  mode='heartbeat';requests=0
+  await page.evaluate(async()=>{const p=(await window.workspace.providers())[0];await window.workspace.saveProvider({...p,timeout:120000,timeoutMode:'unlimited'})})
+  await send('Continuous wait fixture, no tools.')
+  const waiting=page.locator('.gateway-retry').filter({hasText:/等待上游有效响应.*已等待/})
+  await waiting.waitFor({timeout:20000})
+  assert.doesNotMatch(await waiting.textContent(),/超时剩余|线路冷却/)
+  await page.getByRole('button',{name:'停止执行',exact:true}).click();await finished();assert.equal(requests,1)
+  assert.equal(await page.locator('.gateway-retry').count(),0)
   assert.deepEqual(errors,[])
   console.log('Gateway retry UI passed with real CLI: unchanged 429/503 recovery, identical bodies, stop, isolation, 401 key suspension, ten gateway retries per outer attempt (44 requests total), status cleanup, HTTP-200 stream errors and heartbeat-only timeout/recovery.')
 }finally{await app.close();server.close();console.log('Isolated retry fixture: '+data)}

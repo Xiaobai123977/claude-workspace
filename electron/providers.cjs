@@ -1,3 +1,4 @@
+const {upstreamFetch}=require('./upstream-fetch.cjs')
 const fs = require('node:fs')
 const path = require('node:path')
 const crypto = require('node:crypto')
@@ -24,8 +25,10 @@ function validate(input) {
   if (p.extraBody && (typeof p.extraBody !== 'object' || Array.isArray(p.extraBody) || JSON.stringify(p.extraBody).length > 30000 || Object.keys(p.extraBody).some(k => ['__proto__','constructor','prototype','model','messages','input','tools','stream','system','instructions','max_tokens','max_completion_tokens','max_output_tokens','tool_choice'].includes(k)))) throw new Error('兼容参数必须是 JSON 对象，不能覆盖模型、消息、工具、流或输出限制')
   if (p.outputTokenField && !['auto','max_tokens','max_completion_tokens'].includes(p.outputTokenField)) throw new Error('输出上限字段无效')
   if (p.key && (typeof p.key !== 'string' || p.key.length > 10000 || /[\r\n]/.test(p.key))) throw new Error('密钥格式无效')
-  p.timeout = Number(p.timeout || 120000)
-  if (!Number.isInteger(p.timeout) || p.timeout < 10000 || p.timeout > 3600000) throw new Error('请求超时应为 10–3600 秒')
+  p.timeout = Number(p.timeout ?? 0)
+  p.timeoutMode ??= p.timeout&&p.timeout!==120000?'limited':'unlimited'
+  if(!['limited','unlimited'].includes(p.timeoutMode))throw new Error('等待方式无效')
+  if (!Number.isInteger(p.timeout) || p.timeout !== 0 && (p.timeout < 10000 || p.timeout > 3600000)) throw new Error('请求超时应为 0（持续等待）或 10–3600 秒')
   p.models = (p.models || []).map(m => {
     if (!m.id || typeof m.id !== 'string' || m.id.length > 300) throw new Error('模型 ID 无效')
     if (m.efforts && (!Array.isArray(m.efforts) || m.efforts.some(e => !efforts.includes(e)))) throw new Error('思考档位无效')
@@ -77,7 +80,7 @@ function metadata(m) {
     source: 'server', detected:true, fetchedAt: Date.now() }
 }
 class ProvidersService {
-  constructor({ userData, secureStorage, fetcher = fetch, onRetry = () => {}, onRoute=()=>{}, onUsage=()=>{} }) { this.imageReferences=new ImageReferences(userData);this.file = path.join(userData, 'providers.json'); this.poolsFile=path.join(userData,'model-pools.json');this.router=new ModelRouter({file:path.join(userData,'routing-affinity.json')});this.secureStorage = secureStorage; this.fetcher = fetcher; this.onRetry = onRetry;this.onRoute=onRoute;this.onUsage=onUsage; this.proxies = new Map();this.configStore=new (require('./model-config-store.cjs').ModelConfigStore)(this,validate);this.configStore.recover() }
+  constructor({ userData, secureStorage, fetcher = upstreamFetch, onRetry = () => {}, onRoute=()=>{}, onUsage=()=>{} }) { this.imageReferences=new ImageReferences(userData);this.file = path.join(userData, 'providers.json'); this.poolsFile=path.join(userData,'model-pools.json');this.router=new ModelRouter({file:path.join(userData,'routing-affinity.json')});this.secureStorage = secureStorage; this.fetcher = fetcher; this.onRetry = onRetry;this.onRoute=onRoute;this.onUsage=onUsage; this.proxies = new Map();this.configStore=new (require('./model-config-store.cjs').ModelConfigStore)(this,validate);this.configStore.recover() }
   read() { if (!fs.existsSync(this.file)) return []; const data = JSON.parse(fs.readFileSync(this.file, 'utf8')); if (!Array.isArray(data)) throw new Error('连接配置无效，未覆盖');if(data.some(p=>p.schemaVersion>2))throw new Error('供应商配置版本高于当前应用，未覆盖'); return data }
   write(data) { this.configStore.backup();const temp = this.file + '.tmp'; fs.writeFileSync(temp, JSON.stringify(data, null, 2), { mode: 0o600 }); fs.renameSync(temp, this.file) }
   list() { return this.read().map(raw=>({...publicProvider(raw),endpoint:endpoint(raw.baseUrl,raw.protocol)})) }
@@ -236,23 +239,26 @@ class ProvidersService {
     const fingerprint=JSON.stringify([id,connection.revision,revisions,selected,effectiveEffort,sessionId])
     if(!this.proxies.has(fingerprint)){
       const routing={
-        choose:body=>{
-          const routes=compatible(body)
+        choose:(body,{excluded=new Set(),countTokens=false}={})=>{
+          const routes=compatible(body).filter(r=>!countTokens||r.protocol==='anthropic')
+          if(countTokens&&!routes.length)throw Object.assign(new Error('当前线路不支持原生 token 计数'),{routingStatus:501,noRetry:true})
           if(!routes.length){
             const reasons=[]
             if(body?.tools?.length&&initialRoutes.every(r=>r.capability.tools===false))reasons.push('当前 Key 的模型能力配置均为“不支持工具调用”，请求中包含工具定义')
             if(!reasons.length)reasons.push('没有线路同时满足本次请求的工具、思考档位及上下文配置')
             throw Object.assign(new Error(`本地网关：模型 ${selected} 没有兼容线路；${reasons.join('；')}`),{routingStatus:400,noRetry:true})
           }
-          const visionRoutes=hasImages(body)?this.router.available(routes.filter(r=>r.capability.vision!==false)):[]
-          const route=this.router.choose(visionRoutes.length?visionRoutes:routes,{scope:id,sessionId,model:selected,sticky:pool?pool.sticky:connection.sticky!==false,ttlMinutes:pool?.ttlMinutes||60})
+          const untried=this.router.available(routes).filter(r=>!excluded.has(r.id)),candidates=untried.length?untried:routes
+          const visionRoutes=hasImages(body)?this.router.available(candidates.filter(r=>r.capability.vision!==false)):[]
+          const route=this.router.choose(visionRoutes.length?visionRoutes:candidates,{scope:id,sessionId,model:selected,sticky:!countTokens&&(pool?pool.sticky:connection.sticky!==false),ttlMinutes:pool?.ttlMinutes||60})
           const raw=this.read().find(p=>p.id===route.providerId),resolved=this.resolve(raw,route.keyId)
           this.onRoute(sessionId,{providerId:route.providerId,providerName:route.providerName,keyId:route.keyId,keyName:route.keyName,model:route.model,imageReferences:route.capability.vision===false?imageCount(body):0})
           return {...route,p:{...resolvedModel(resolved,route.capability,effectiveEffort),routeId:route.id,imageReference:image=>this.imageReferences.reference(image)},headers:this.headers(resolved)}
         },
-        report:(route,result)=>this.router.report(route,result),
+        report:(route,result)=>{if(result.error?.code==='GATEWAY_TIMEOUT'||result.error?.cause?.code==='GATEWAY_TIMEOUT')return;this.router.report(route,result)},
         retryAfter:body=>{const until=Math.min(...compatible(body).map(r=>this.router.availableAt(r)));return Number.isFinite(until)?Math.max(0,until-this.router.now()):0},
-        hasAlternative:(body,current)=>this.router.available(compatible(body)).some(r=>r.id!==current?.id)
+        routeCount:body=>compatible(body).length,
+        hasAlternative:(body,current,{excluded=new Set(),countTokens=false}={})=>this.router.available(compatible(body)).some(r=>(!countTokens||r.protocol==='anthropic')&&r.id!==current?.id&&!excluded.has(r.id))
       }
       const promise=startProxy({...connection,model:selected,effort:effectiveEffort}, {},this.fetcher,{onRetry:event=>this.onRetry(sessionId,event),onUsage:usage=>this.onUsage(sessionId,usage),routing}).then(proxy=>{if(this.closed)proxy.close();return proxy}).catch(error=>{this.proxies.delete(fingerprint);throw error})
       promise.providerId=id;promise.sessionId=sessionId;this.proxies.set(fingerprint,promise)

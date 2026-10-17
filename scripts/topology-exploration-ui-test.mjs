@@ -26,6 +26,8 @@ try{
   await button('并发探索').click();assert.equal(await depth().inputValue(),'2');await button('关闭拓扑探索设置').click()
   await button('模块：请求入口').click();await button('并发探索此节点').click();assert.equal(await scope().inputValue(),'entry');await depth().selectOption('auto');await button('准备并发探索').click()
   await input().press('Enter');await idle();assert.match(JSON.parse(fs.readFileSync(proof,'utf8')).prompt,/逐项解释停止依据/);assert.match(JSON.parse(fs.readFileSync(proof,'utf8')).prompt,/"moduleId": "entry"/)
+  assert.equal(JSON.parse(fs.readFileSync(proof,'utf8')).continuations.length,2)
+  assert.match((await state()).sessions[0].messages.at(-1).notice,/自动探索尚未完成.*连续两轮/)
   const current=fs.readFileSync(path.join(project,'.claude/workspace-topology.json'),'utf8')
   await button('模块：请求入口').click();await button('重新生成此节点').click();assert.equal(await scope().inputValue(),'entry');await depth().selectOption('custom');await page.getByRole('spinbutton',{name:'自定义拓扑层数'}).fill('0');await button('准备重新生成').click();await page.getByRole('alert').getByText('探索深度应为 1–100 层',{exact:true}).waitFor()
   await page.getByRole('spinbutton',{name:'自定义拓扑层数'}).fill('4');await button('准备重新生成').click();await page.getByRole('status').getByText(/旧图已备份/).waitFor();const backups=fs.readdirSync(path.join(data,'topology/backups'),{recursive:true}).filter(name=>name.endsWith('.json'));assert.equal(backups.length,1);assert.equal(fs.readFileSync(path.join(data,'topology/backups',backups[0]),'utf8'),current)

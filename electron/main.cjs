@@ -227,6 +227,25 @@ function finishRun(id, run, code = 0) {
   run.completed = true; clearTimeout(run.finishTimer); clearTimeout(run.stopTimer)
   cancelApprovals(run.message)
   run.accumulator.finish(code, run.stderr, run.stopped)
+  if(run.stopped&&run.autoExploration)run.message.notice='自动探索已停止，已生成的拓扑保留；未完成范围可在拓扑中继续。'
+  if(!run.stopped&&!code&&!run.accumulator.error&&run.autoExploration){
+    try{
+      const next=topology.explorationFollowup(sessionById(id).cwd,run.autoExploration.request)
+      if(!next.complete){
+        const auto=run.autoExploration;auto.unchanged=next.signature===auto.signature?(auto.unchanged||0)+1:0;auto.signature=next.signature
+        if(!next.blocked&&next.prompt&&auto.round<8&&auto.unchanged<2&&run.connection&&!run.connection.client.closed){
+          auto.round++;run.completed=false;run.mainResultFresh=false;run.accumulator.result=null;run.hasSessionState=false;run.sessionState=undefined
+          run.message.status='running';run.message.notice=`自动探索第 ${auto.round} 轮 · 继续处理 ${next.coverage.frontier.length} 个待展开模块和数据流缺口`
+          const input=JSON.parse(claude.makeInput(next.prompt,[],true));input.uuid=uid()
+          run.message.internalUserIds??=[];run.message.internalUserIds.push(input.uuid)
+          // Replay exactly this continuation if the existing final-error retry fires.
+          run.retryInput.input=JSON.stringify(input)
+          run.connection.client.write(input);notify(true);return
+        }
+        run.message.notice=`自动探索尚未完成：${next.reason||(auto.unchanged>=2?'连续两轮没有解决新的覆盖缺口，已暂停，避免空转':auto.round>=8?'已达到本轮 8 批上限，可在拓扑界面继续探索':'连接已结束')}。请查看拓扑中的待探索清单。`
+      }else run.message.notice='自动探索的停止依据与数据流映射检查通过；仍需核对业务语义。'
+    }catch(error){run.message.notice='自动探索未通过交付检查：'+error.message}
+  }
   const retry=nextFinalRetry(run)
   if(retry){
     run.finalRetries=retry.attempt;run.retryWaiting=true
@@ -349,6 +368,7 @@ async function startTurnImpl(id, prompt, ids = [],browserContexts=[],replay,topo
   if(!retryRun)session.messages.push(message)
   const run = retryRun || { stopped: false, stderr: '', child: null, message, tasks: new Set(), completed: false,topologyTask:!!topologySelection?.requests?.some(r=>['explore','regenerate','refine','design','implement','sync'].includes(r.action)) }
   run.retryInput??={prompt,input,replay:{attachments,topologySelection}}
+  if(!retryRun){const request=topologySelection?.requests?.find(r=>['explore','regenerate'].includes(r.action)&&r.depth==='auto');if(request)run.autoExploration={request,round:1,unchanged:0}}
   if(!retryRun)run.changeTracker=await turnChanges.begin(session.cwd)
   runs.set(id, run)
   if(!retryRun)run.accumulator = new TurnAccumulator(message, nativeId => { session.nativeId = nativeId; session.forkPending = false; delete session.resumeAt })

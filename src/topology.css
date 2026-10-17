@@ -18,3 +18,32 @@
 .topology-operation-body textarea{width:100%;min-height:120px;resize:vertical;background:#24211f;color:#e1d2c3;border:1px solid #514231;border-radius:8px;padding:10px;font-size:12px;line-height:1.7}
 .topology-acceptance{font-size:11px;color:#cec1b4}.topology-acceptance ul{padding-left:18px;line-height:1.7}
 .topology-toolbar{flex-wrap:wrap}
+
+/* Business flow surface: compact processes, named ports and separate wires. */
+.topology-diagram-host{position:relative;flex:1;min-height:0;display:flex}
+.topology-diagram-host .topology-canvas{display:block;flex:1;min-width:0}
+.topology-diagram-host .topology-canvas:has(.topology-module-empty){display:grid}
+.topology-flow-legend{display:flex;align-items:center;gap:18px;padding:7px 16px;color:#bca58f;font-size:11px;border-bottom:1px solid var(--line);flex-wrap:wrap;flex-shrink:0}
+.topology-flow-legend button{margin-left:auto;font-size:11px;color:var(--accent)}
+.legend-return{color:#9eabb7}.legend-storage{color:#b8ad89}.legend-gap{color:#dc997d}
+.flow-process rect{fill:#242321;stroke:#746352;stroke-width:1.2}
+.flow-process .node-label{font-size:14px;fill:#e6dacf;font-weight:500}
+.flow-process-meta{font-size:10px;fill:#a99a8a}
+.flow-process.boundary rect,.flow-process.context rect{fill:#1e211f;stroke:#738077;stroke-dasharray:4 3}
+.flow-process.unknown rect{fill:#2c211c;stroke:#c38c70;stroke-dasharray:5 4}
+.flow-process.unknown .node-label{fill:#e0ab8e}
+.flow-port{fill:#b39a82;stroke:#1b1917;stroke-width:1}
+.flow-port-label{font-size:10px;fill:#b5aa9d}
+.flow-process-approved{fill:var(--accent);font-size:14px}
+.flow-wire{color:#b29578}.flow-wire.return{color:#9eabb7}.flow-wire.return .edge-line{stroke-dasharray:6 4}
+.flow-wire.storage-read,.flow-wire.storage-write{color:#b8ad89}
+.flow-wire .edge-line{stroke-width:1.5;stroke-linejoin:round}
+.flow-wire.boundary-wire{color:#8f9c90}
+.flow-wire.flow-gap{color:#dc997d}.flow-wire.flow-gap .edge-line{stroke-dasharray:3 5}
+.flow-wire text{font-size:10px;fill:currentColor;pointer-events:all;cursor:pointer}
+.flow-dim{opacity:.15}
+.topology-minimap{position:absolute;right:12px;bottom:12px;width:170px;height:105px;background:#151514ed;border:1px solid #5d5043;border-radius:8px;cursor:crosshair;box-shadow:0 6px 22px #0006;z-index:2}
+.topology-minimap line{stroke:#a38c73;stroke-width:3}.topology-minimap rect{fill:#806e5b;stroke:#bba58d;stroke-width:2}.topology-minimap rect.gap{fill:#bd8162}
+.topology-minimap rect.minimap-viewport{fill:#ddbb8e18;stroke:#eed0aa;stroke-width:5;pointer-events:none}
+.topology-exploration-progress{font-size:11px;padding:7px 16px;color:#c5ad92;flex-shrink:0}
+.topology-exploration-progress button{font-size:11px;color:var(--accent);margin-left:10px}

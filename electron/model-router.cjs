@@ -33,7 +33,7 @@ class ModelRouter {
       const error=new Error(!routes.length?'没有已检测且能力兼容的模型线路':failure?.status?(failure.hint||`HTTP ${failure.status}`):'所有已确认线路正在冷却或不可用')
       error.routingStatus=!routes.length?400:failure?.status||503
       error.retryAfterMs=Number.isFinite(earliest)?Math.max(0,earliest-this.now()):undefined
-      error.noRetry=!routes.length||!Number.isFinite(earliest)
+      error.noRetry=!routes.length||!Number.isFinite(earliest)||[401,403,404].includes(failure?.status)
       throw error
     }
     const affinity=this.affinity(scope,sessionId,model),previous=this.sticky.get(affinity)
@@ -50,13 +50,13 @@ class ModelRouter {
   report(route,{response,error,hint=''}) {
     if(!route)return
     const status=response?.status,ids=this.healthIds(route)
-    if(response?.ok)return
+    if(response?.ok){for(const id of ids)this.health.delete(id);return}
     if(error||[408,409,425,429,500,502,503,504,529].includes(status)||status>=500){
       const delay=response?retryDelay(response.headers,1,{random:()=>0.5}):2000
       const id=ids[1]
       this.health.set(id,{until:this.now()+Math.max(1,delay),status:status||0,hint})
-    }else if(status===401)this.health.set(ids[1],{until:Infinity,status,hint})
-    else if(status===403||status===404)this.health.set(ids[2],{until:Infinity,status,hint})
+    }else if(status===401)this.health.set(ids[1],{until:this.now()+30000,status,hint})
+    else if(status===403||status===404)this.health.set(ids[2],{until:this.now()+3000,status,hint})
   }
   snapshot(routes){return routes.map(r=>({id:r.id,providerId:r.providerId,keyId:r.keyId,model:r.model,coolingUntil:Number.isFinite(this.availableAt(r))?this.availableAt(r):null,unavailable:this.availableAt(r)>this.now()}))}
 }

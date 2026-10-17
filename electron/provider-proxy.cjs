@@ -1,3 +1,4 @@
+const {upstreamFetch}=require('./upstream-fetch.cjs')
 const http = require('node:http')
 const crypto = require('node:crypto')
 const {normalizeUsage}=require('./token-usage.cjs')
@@ -171,7 +172,7 @@ async function streamConverted(upstream, res, p, onUsage) {
   emit('message_delta', { delta: { stop_reason: stop, stop_sequence: null }, usage: { input_tokens: input, output_tokens: output,...observedUsage } })
   emit('message_stop', {}); res.end()
 }
-async function startProxy(p, headers, fetcher = fetch, { onRetry, onUsage, retryPolicy, routing } = {}) {
+async function startProxy(p, headers, fetcher = upstreamFetch, { onRetry, onUsage, retryPolicy, routing } = {}) {
   const token = crypto.randomBytes(32).toString('hex'), requests = new Set(), reasoningByRoute = new Map()
   let previousRoute,changedRoute=false
   const server = http.createServer(async (req, res) => {
@@ -179,7 +180,7 @@ async function startProxy(p, headers, fetcher = fetch, { onRetry, onUsage, retry
     if (auth !== token) { res.writeHead(401); res.end(); return }
     res.setHeader('x-should-retry', 'false')
     const controller = new AbortController(); requests.add(controller)
-    let release = () => {},streamRoute,errorSecrets=[]
+    let release = () => {},streamRoute,attemptSignal,errorSecrets=[]
     res.on('close', () => { if (!res.writableFinished) controller.abort() })
     try {
       const route = new URL(req.url, 'http://localhost').pathname
@@ -189,10 +190,11 @@ async function startProxy(p, headers, fetcher = fetch, { onRetry, onUsage, retry
       const body = JSON.parse(raw)
       if (route.endsWith('/count_tokens') && p.protocol !== 'anthropic') { res.writeHead(501); res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: '此协议不提供 Anthropic token 计数' } })); return }
       let active=p,currentRoute,routeError,request,requestHeaders=headers,url,reasoning,lastHint=''
+      const excluded=new Set(),countTokens=route.endsWith('/count_tokens'),routeContext={excluded,countTokens},hasAlternative=()=>!!routing?.hasAlternative(body,currentRoute,routeContext)
       const prepare=()=>{
-        routeError=null
+        routeError=null;currentRoute=undefined
         try{
-          currentRoute=routing?.choose(body);active=currentRoute?.p||p;requestHeaders=currentRoute?.headers||headers
+          currentRoute=routing?.choose(body,routeContext);active=currentRoute?.p||p;requestHeaders=currentRoute?.headers||headers
           const unverifiedHistory=!previousRoute
           if(previousRoute&&currentRoute&&previousRoute!==currentRoute.id)changedRoute=true
           previousRoute=currentRoute?.id||previousRoute
@@ -209,28 +211,42 @@ async function startProxy(p, headers, fetcher = fetch, { onRetry, onUsage, retry
             request.input=request.input.flatMap(i=>i.type==='function_call'&&reasoning.has(i.call_id)?[...reasoning.get(i.call_id).filter(r=>!present.has(r.id)&&present.add(r.id)),i]:[i])
           }
           url=endpoint(active.baseUrl,active.protocol)+(route.endsWith('/count_tokens')?'/count_tokens':'')
-        }catch(error){routeError=error;if(!error.routingStatus){error.routingStatus=400;error.noRetry=true}}
-        return {timeout:active.timeout||p.timeout}
+        }catch(error){if(error.retryAfterMs>0&&!error.noRetry)throw error;routeError=error;if(!error.routingStatus){error.routingStatus=400;error.noRetry=true}}
+        return {timeout:active.timeout??(p.timeoutMode==='unlimited'?0:p.timeout)}
       }
-      const switchable=(response,error)=>!!error||response&&([401,403,404,408,409,425,429].includes(response.status)||response.status>=500)
+      const switchable=(response,error)=>!!error||response&&([400,401,403,404,408,409,422,425,429].includes(response.status)||response.status>=500)
       const result=await fetchWithRetry(async(_url,init)=>{
-        if(routeError)return new Response('',{status:routeError.routingStatus,headers:{...(routeError.noRetry?{'x-should-retry':'false'}:{}),...(routeError.retryAfterMs?{'retry-after-ms':String(routeError.retryAfterMs)}:{})}})
-        try{errorSecrets=[active.key,...Object.entries(requestHeaders||{}).filter(([name])=>/authorization|api[-_]?key|token|cookie|secret/i.test(name)).flatMap(([,value])=>[value,String(value).replace(/^Bearer /i,'')])];const rawResponse=await fetcher(url,{...init,headers:requestHeaders,body:JSON.stringify(request)});const response=route.endsWith('/count_tokens')?rawResponse:await inspectResponse(rawResponse,{protocol:active.protocol,stream:!!body.stream,signal:init.signal});lastHint=response.ok?'':await upstreamHint(response,errorSecrets);routing?.report(currentRoute,{response,hint:lastHint});return response}
-        catch(error){if(!controller.signal.aborted)routing?.report(currentRoute,{error});throw error}
+        attemptSignal=init.signal
+        if(routeError)return new Response('',{status:routeError.routingStatus,headers:{'x-claude-gui-local-error':'true',...(routeError.noRetry?{'x-should-retry':'false'}:{}),...(routeError.retryAfterMs?{'retry-after-ms':String(routeError.retryAfterMs)}:{})}})
+        try{errorSecrets=[active.key,...Object.entries(requestHeaders||{}).filter(([name])=>/authorization|api[-_]?key|token|cookie|secret/i.test(name)).flatMap(([,value])=>[value,String(value).replace(/^Bearer /i,'')])];const rawResponse=await fetcher(url,{...init,headers:requestHeaders,body:JSON.stringify(request)});const response=route.endsWith('/count_tokens')?rawResponse:await inspectResponse(rawResponse,{protocol:active.protocol,stream:!!body.stream,signal:init.signal});lastHint=response.ok?'':await upstreamHint(response,errorSecrets);if(!countTokens)routing?.report(currentRoute,{response,hint:lastHint});if(currentRoute&&switchable(response))excluded.add(currentRoute.id);return response}
+        catch(error){if(!controller.signal.aborted&&!countTokens)routing?.report(currentRoute,{error:init.signal.aborted?init.signal.reason:error});if(currentRoute)excluded.add(currentRoute.id);throw error}
       },'http://local-route',{method:'POST',redirect:'error',signal:controller.signal},{
-        timeout:p.timeout||120000,prepare,policy:retryPolicy,
+        timeout:p.timeoutMode==='unlimited'?0:p.timeout??0,prepare,policy:{...retryPolicy,maxRetries:Math.max(retryPolicy?.maxRetries??10,(routing?.routeCount?.(body)||1)-1)},
         onRetry:event=>onRetry?.({...event,...(currentRoute?{providerName:currentRoute.providerName,keyName:currentRoute.keyName}:{})}),
         shouldRetry:(response,error,standard)=>{
-          if(!routing||response?.headers.get('x-should-retry')==='false')return standard
-          if(response&&[401,403,404].includes(response.status))return routing.hasAlternative(body,currentRoute)
+          if(!routing||routeError)return standard
+          // A route's do-not-retry hint applies to that endpoint, not independent backups.
+          if(switchable(response,error)&&hasAlternative())return true
           return standard
         },
-        getDelay:(response,error,delay)=>{if(routing&&switchable(response,error)&&routing.hasAlternative(body,currentRoute))return 0;const cooldown=routing?.retryAfter?.(body)||0;return Math.max(delay,cooldown>0?cooldown+5:0)}
+        getDelay:(response,error,delay)=>{if(routing&&switchable(response,error)&&hasAlternative())return 0;const cooldown=routing?.retryAfter?.(body)||0;return Math.max(delay,cooldown>0?cooldown+5:0)}
       })
       release=result.release
       const upstream=result.response
-      if(!upstream.ok){void upstream.body?.cancel().catch(()=>{});res.writeHead(upstream.status,{'Content-Type':'application/json'});res.end(JSON.stringify({type:'error',error:{type:'api_error',message:routeError?routeError.message:(lastHint||`HTTP ${upstream.status}`)}}));return}
-      streamRoute=currentRoute
+      if(!upstream.ok){
+        void upstream.body?.cancel().catch(()=>{})
+        const bodyError=upstream.headers.get('x-claude-gui-stream-error')==='true'
+        // The CLI treats 404 as proof its selected model does not exist, and 401
+        // as its own authentication failure. These are upstream/route failures,
+        // not failures of the CLI's local model ID or local gateway credential.
+        const status=(routeError&&upstream.status>=500)||bodyError||[401,403,404].includes(upstream.status)?502:upstream.status
+        const error={type:'api_error',source:routeError?'local_router':bodyError?'upstream_body':'upstream_http',
+          ...(routeError?{routing_status:upstream.status}:bodyError?{upstream_status:200,
+            ...(upstream.headers.has('x-claude-gui-upstream-status')?{reported_status:Number(upstream.headers.get('x-claude-gui-upstream-status'))}:{})
+          }:{upstream_status:upstream.status}),message:routeError?routeError.message:(lastHint||`HTTP ${upstream.status}`)}
+        res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify({type:'error',error}));return
+      }
+      streamRoute=countTokens?undefined:currentRoute
       const reportUsage=usage=>onUsage?.({usage,cacheReported:usage.cache_read_input_tokens!==undefined||usage.cache_creation_input_tokens!==undefined})
       if (active.protocol === 'anthropic') {
         const type=upstream.headers.get('content-type')||'application/json';let body=upstream.body,observation
@@ -249,7 +265,7 @@ async function startProxy(p, headers, fetcher = fetch, { onRetry, onUsage, retry
         } else await streamConverted(upstream, res, active,reportUsage)
       } else { const data = await upstream.json(); reportUsage(normalizeUsage(data.usage,active.protocol));if (active.protocol === 'responses') { const items = data.output?.filter(i => i.type === 'reasoning') || []; for (const i of data.output || []) if (i.type === 'function_call') reasoning.set(i.call_id, items) }; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(convertResult(data, active))) }
     } catch (error) {
-      if(streamRoute&&!controller.signal.aborted)routing?.report(streamRoute,{error})
+      if(streamRoute&&!controller.signal.aborted)routing?.report(streamRoute,{error:attemptSignal?.aborted?attemptSignal.reason:error})
       const payload = { type: 'error', error: { type: 'api_error', message: controller.signal.aborted ? '请求已取消或超时' : redact(error.message,errorSecrets).replace(/https?:\/\/\S+/g, '[服务地址]') } }
       if (!res.headersSent) { res.writeHead(502, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(payload)) }
       else res.end(`event: error\ndata: ${JSON.stringify(payload)}\n\n`)

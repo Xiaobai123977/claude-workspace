@@ -36,7 +36,7 @@ test('JSON error envelopes returned with HTTP 200 honor permanent errors, retrie
   for(const [error,expected] of [[{type:'rate_limit_error',message:'raw rate limit'},3],[{type:'invalid_request_error',message:'raw invalid input'},1]]){
     let calls=0;const proxy=await startProxy({protocol:'chat',model:'fixture',baseUrl:'http://fixture',models:[]},{},async()=>{calls++;return Response.json({error})},{retryPolicy:quick});t.after(()=>proxy.close());const response=await call(proxy),data=await response.json();assert.equal(calls,expected);assert.equal(data.error.message,error.message)
   }
-  let calls=0;const proxy=await startProxy({protocol:'chat',model:'fixture',baseUrl:'http://fixture',models:[]},{},async()=>{calls++;return stream(packet({error:{type:'overloaded_error',message:'no retry'}}))},{retryPolicy:{...quick,maxRetries:0}});t.after(()=>proxy.close());assert.equal((await call(proxy)).status,529);assert.equal(calls,1)
+  let calls=0;const proxy=await startProxy({protocol:'chat',model:'fixture',baseUrl:'http://fixture',models:[]},{},async()=>{calls++;return stream(packet({error:{type:'overloaded_error',message:'no retry'}}))},{retryPolicy:{...quick,maxRetries:0}});t.after(()=>proxy.close());const exhausted=await call(proxy);assert.equal(exhausted.status,502);assert.equal((await exhausted.json()).error.source,'upstream_body');assert.equal(calls,1)
 })
 test('reading a never-ending error body is bounded and retry cancellation cannot hang on body disposal',async()=>{
   const response=new Response(new ReadableStream({start(c){c.enqueue(Buffer.from('{"error":'))}}),{status:503})

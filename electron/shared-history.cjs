@@ -10,16 +10,19 @@ const records = text => text.split('\n').flatMap(line => { try { const e=JSON.pa
 const content = message => typeof message?.content === 'string' ? [{type:'text', text:message.content}] : Array.isArray(message?.content) ? message.content : []
 const display = blocks => typeof blocks === 'string' ? blocks : (blocks || []).map(b => b.type === 'image' ? '[图片]' : b.text || '').filter(Boolean).join('\n')
 const interruption = e => e.type==='user'&&content(e.message).length>0&&content(e.message).every(b=>b.type==='text')&&/^\[Request interrupted by user(?: for tool use)?\]$/.test(display(content(e.message)).trim())
+// CLI-generated summaries are serialized with role=user, but are context transport,
+// not human input. Keep them in the ancestry graph, never in visible messages.
+const internalMessage = e => !!e.isMeta || !!e.isCompactSummary
 const revision = stat => `${stat.size}:${stat.mtimeMs}`
-const metadataKeys = ['id','attachments','topologySelection','browserContexts','approvals','gatewayRoute','imageReferences','notice','error','structured','tasks','usage','lastRequestUsage','modelUsage','cacheReporting','contextKey','changes','changeError']
+const metadataKeys = ['id','attachments','topologySelection','browserContexts','approvals','gatewayRoute','imageReferences','notice','error','structured','tasks','usage','lastRequestUsage','modelUsage','cacheReporting','contextKey','changes','changeError','internalUserIds']
 
 // The CLI transcript is canonical. This parser groups one agent turn (including
 // intermediate tool calls) into one GUI message without copying the JSONL store.
-function parseMessages(events) {
+function parseMessages(events,hiddenUserIds=new Set()) {
   const unique = new Map()
   for (const e of events) if (e.uuid && !e.isSidechain && !e.parent_tool_use_id && !e.parentToolUseID) unique.set(e.uuid, e)
   const ordered = [...unique.values()]
-  const leaf = ordered.findLast(e => !e.isMeta && !interruption(e) && (e.type==='assistant'||e.type==='user'&&display(content(e.message).filter(b=>['text','image'].includes(b.type)))))
+  const leaf = ordered.findLast(e => !internalMessage(e) && !hiddenUserIds.has(e.uuid) && !interruption(e) && (e.type==='assistant'||e.type==='user'&&display(content(e.message).filter(b=>['text','image'].includes(b.type)))))
   let chain
   if (leaf?.parentUuid && unique.has(leaf.parentUuid)) {
     chain = new Set(); let e = leaf
@@ -31,6 +34,7 @@ function parseMessages(events) {
   }
   const messages = [], tools = new Map(); let assistant,requestUsages=new Map()
   for (const e of ordered) {
+    if(e.type==='system'&&e.subtype==='compact_boundary'&&(!chain||chain.has(e.uuid))){assistant=null;requestUsages=new Map()}
     if(interruption(e)){
       // CLI writes this control marker as a user record. Associate it with its
       // own ancestor turn, including markers flushed after a newer answer.
@@ -58,7 +62,7 @@ function parseMessages(events) {
     }
     const text = display(blocks.filter(b => ['text','image'].includes(b.type)))
     if (e.type === 'user') {
-      if (!text || e.isMeta) continue
+      if (!text || internalMessage(e) || hiddenUserIds.has(e.uuid)) continue
       assistant = null
       requestUsages=new Map()
       messages.push({id:e.uuid, checkpointId:e.uuid, role:'user', text:commandText(text), time:Date.parse(e.timestamp)||0, tools:[], status:'done'})
@@ -113,10 +117,10 @@ class SharedHistory {
     try { fs.readSync(fd,head,0,head.length,0); fs.readSync(fd,tail,0,tail.length,Math.max(0,stat.size-tail.length)) } finally { fs.closeSync(fd) }
     const events = records(head.toString()), ending = stat.size > length ? records(tail.toString()) : events
     const visible=[...events,...ending]
-    const first = visible.find(e => e.type === 'user' && !e.isMeta && !e.isSidechain && !interruption(e) && display(content(e.message)))
+    const first = visible.find(e => e.type === 'user' && !internalMessage(e) && !e.isSidechain && !interruption(e) && display(content(e.message)))
     const cwd = visible.find(e => typeof e.cwd === 'string' && path.isAbsolute(e.cwd) && !e.isSidechain)?.cwd || fallbackCwd
     const customTitle = [...ending].reverse().find(e => e.type === 'custom-title')?.customTitle || [...events].reverse().find(e => e.type === 'custom-title')?.customTitle
-    const item = {id:path.basename(file,'.jsonl'),file,cwd,revision:rev,hasMessages:visible.some(e=>['user','assistant'].includes(e.type)&&!e.isMeta&&!e.isSidechain&&e.message),title:customTitle || commandText(display(content(first?.message))).slice(0,100) || 'Claude 会话',customTitle,createdAt:Date.parse(first?.timestamp)||stat.birthtimeMs,updatedAt:stat.mtimeMs}
+    const item = {id:path.basename(file,'.jsonl'),file,cwd,revision:rev,hasMessages:visible.some(e=>['user','assistant'].includes(e.type)&&!internalMessage(e)&&!interruption(e)&&!e.isSidechain&&e.message),title:customTitle || commandText(display(content(first?.message))).slice(0,100) || 'Claude 会话',customTitle,createdAt:Date.parse(first?.timestamp)||stat.birthtimeMs,updatedAt:stat.mtimeMs}
     this.cache.set(file,item); return item
   }
   scan(knownCwds = []) {
@@ -162,7 +166,7 @@ class SharedHistory {
     if (!file) return false
     const stat = fs.statSync(file), rev = revision(stat)
     if (!force && this.loaded.get(session.id) === rev) return false
-    const events = this.read(file), parsed = parseMessages(events), meta = this.metadata(session)
+    const events = this.read(file), meta = this.metadata(session),hiddenUserIds=new Set(Object.values(meta).flatMap(m=>m.internalUserIds||[])),parsed = parseMessages(events,hiddenUserIds)
     if (!parsed.length) return false // CLI may currently be writing the first record.
     for (const m of parsed) {
       const extra = meta[m.checkpointId || m.nativeUUID] || m.nativeUUIDs?.map(id => meta[id]).find(Boolean)

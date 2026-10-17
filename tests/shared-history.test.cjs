@@ -159,3 +159,39 @@ test('parser groups tool calls per turn, applies results, chooses current parent
   const result=parseMessages([e('user','u',null,'hello'),e('assistant','tool','u',[{type:'tool_use',id:'call',name:'Read',input:{file_path:'a'}}]),e('user','result','tool',[{type:'tool_result',tool_use_id:'call',content:[{type:'text',text:'file text'},{type:'image',source:{data:'SECRET_BASE64'}}]}]),e('assistant','answer','result','done'),e('assistant','discarded','answer','discard this branch'),e('user','u2','answer','continue'),e('assistant','a2','u2','final')])
   assert.equal(result.length,4);assert.equal(result[1].tools[0].output,'file text\n[图片]');assert.equal(result[1].nativeUUID,'answer');assert.equal(result[3].text,'final');assert.equal(JSON.stringify(result).includes('discard this branch'),false);assert.equal(JSON.stringify(result).includes('SECRET_BASE64'),false)
 })
+
+
+test('compaction summaries stay internal across interruption, late writes and restart without altering native data',t=>{
+  const f=fixture(t),boundary={type:'system',subtype:'compact_boundary',uuid:'boundary',parentUuid:null,logicalParentUuid:'a1'},summary={...f.event('user','summary','boundary','This session is being continued from a previous conversation that ran out of context. Summary: internal context'),isCompactSummary:true,isVisibleInTranscriptOnly:true}
+  const rows=[...f.rows,boundary,summary,f.event('assistant','continued','summary','continued assistant output'),f.event('user','stop','continued','[Request interrupted by user]')]
+  f.write(rows);const original=fs.readFileSync(f.file,'utf8')
+  f.history.sync(f.state);const s=f.state.sessions[0];f.state.activeId=s.id;f.history.hydrate(s,true)
+  assert.deepEqual(s.messages.map(m=>[m.role,m.text]),[['user','hello from CLI'],['assistant','native reply'],['assistant','continued assistant output']])
+  assert.equal(s.messages.at(-1).status,'stopped')
+  const restored=JSON.parse(JSON.stringify(f.history.serialize(f.state)));new SharedHistory({configHome:()=>f.home}).sync(restored)
+  assert.deepEqual(restored.sessions[0].messages.map(m=>[m.role,m.text]),s.messages.map(m=>[m.role,m.text]))
+  assert.equal(fs.readFileSync(f.file,'utf8'),original)
+  const late=[...f.rows,f.event('user','u2','a1','latest question'),f.event('assistant','a2','u2','latest answer'),summary]
+  assert.deepEqual(parseMessages(late).map(m=>m.text),['hello from CLI','native reply','latest question','latest answer'])
+  // The same wording genuinely typed by a user must remain visible.
+  assert.equal(parseMessages([f.event('user','quoted',null,summary.message.content[0].text)])[0].role,'user')
+})
+
+test('internal-only compaction records do not create chats or become their titles',t=>{
+  const f=fixture(t),summary={...f.event('user','summary',null,'internal summary'),isCompactSummary:true}
+  f.write([summary]);assert.equal(f.history.scan([f.cwd]).length,0)
+  f.write([summary,f.event('user','real','summary','actual question')]);const d=f.history.scan([f.cwd])[0]
+  assert.equal(d.title,'actual question');assert.deepEqual(parseMessages([summary,f.event('user','real','summary','actual question')]).map(m=>m.text),['actual question'])
+})
+
+test('automatic topology continuation inputs stay internal when canonical history is restored',t=>{
+  const f=fixture(t);f.history.sync(f.state);const s=f.state.sessions[0];f.state.activeId=s.id;f.history.hydrate(s)
+  s.messages[1].internalUserIds=['auto-continue'];s.messages[1].nativeUUID='a2'
+  f.write([...f.rows,f.event('user','auto-continue','a1','INTERNAL_EXPLORATION_QUEUE'),f.event('assistant','a2','auto-continue','deeper exploration result')])
+  f.history.hydrate(s,true)
+  assert.equal(s.messages.filter(m=>m.role==='user').length,1);assert.equal(s.messages.some(m=>m.text.includes('INTERNAL_EXPLORATION_QUEUE')),false)
+  assert.match(s.messages[1].text,/native reply/);assert.match(s.messages[1].text,/deeper exploration result/)
+  const restored=JSON.parse(JSON.stringify(f.history.serialize(f.state)));new SharedHistory({configHome:()=>f.home}).sync(restored)
+  assert.equal(restored.sessions[0].messages.filter(m=>m.role==='user').length,1)
+  assert.ok(fs.readFileSync(f.file,'utf8').includes('INTERNAL_EXPLORATION_QUEUE'),'Native context must be preserved for the actual CLI')
+})

@@ -1,5 +1,6 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto')
 const {inspectDataFlow}=require('./topology-flow.cjs')
+const {inspectExploration}=require('./topology-exploration.cjs')
 const GRAPH_PATH='.claude/workspace-topology.json'
 const hash=value=>crypto.createHash('sha256').update(value).digest('hex')
 function inside(root,file){const relative=path.relative(root,file);return relative===''||(!relative.startsWith('..'+path.sep)&&relative!=='..'&&!path.isAbsolute(relative))}
@@ -20,7 +21,7 @@ function validateGraph(value,cwd){
   const enumValue=(v,allowed,label)=>{if(!allowed.includes(v))throw new Error(`${label}无效`);return v}
   const boundaries=items=>{if(!Array.isArray(items)||items.length>40)throw new Error('数据流边界无效');return items.map(b=>({direction:enumValue(b.direction,['input','output'],'边界方向'),port:text(b.port,'边界端口',300),kind:enumValue(b.kind,['entry','terminal','external','parent','unresolved'],'边界类型'),reason:text(b.reason,'边界依据'),refs:refs(b.refs||[]),...(b.parentPort?{parentPort:text(b.parentPort,'父模块端口',300)}:{})}))}
   const lifecycle=item=>({... (item.status?{status:enumValue(item.status,['planned','implemented'],'实现状态')}:{}),...(item.acceptance?{acceptance:strings(item.acceptance)}:{}),...(item.verification?{verification:{status:enumValue(item.verification.status,['pending','passed','failed'],'验证状态'),summary:text(item.verification.summary,'验证说明'),commands:strings(item.verification.commands||[])}}:{})})
-  const nodes=value.nodes.map(n=>({...lifecycle(n),id:id(n.id),label:text(n.label,'模块名称',100),purpose:text(n.purpose,'模块用途'),inputs:strings(n.inputs),outputs:strings(n.outputs),refs:refs(n.refs),...(n.parent?{parent:id(n.parent)}:{}),kind:enumValue(n.kind||'module',['module','external','database','terminal'],'模块类型'),...(n.boundaries?{boundaries:boundaries(n.boundaries)}:{}),...(n.uncertain?{uncertain:text(n.uncertain,'待核实说明')}: {})}))
+  const nodes=value.nodes.map(n=>({...lifecycle(n),...(n.exploration?{exploration:{state:enumValue(n.exploration.state,['leaf','external','blocked'],'探索停止状态'),reason:text(n.exploration.reason,'探索停止依据')}}:{}),id:id(n.id),label:text(n.label,'模块名称',100),purpose:text(n.purpose,'模块用途'),inputs:strings(n.inputs),outputs:strings(n.outputs),refs:refs(n.refs),...(n.parent?{parent:id(n.parent)}:{}),kind:enumValue(n.kind||'module',['module','external','database','terminal'],'模块类型'),...(n.boundaries?{boundaries:boundaries(n.boundaries)}:{}),...(n.uncertain?{uncertain:text(n.uncertain,'待核实说明')}: {})}))
   const ids=new Set(nodes.map(n=>n.id));if(ids.size!==nodes.length)throw new Error('模块 ID 重复')
   const byId=new Map(nodes.map(n=>[n.id,n]))
   for(const n of nodes){const seen=new Set([n.id]);let parent=n.parent;while(parent){if(!ids.has(parent)||seen.has(parent))throw new Error('模块层级存在循环或父模块不存在');seen.add(parent);parent=byId.get(parent).parent}}
@@ -41,14 +42,14 @@ class TopologyService{
     const warn=(item,message)=>{warnings.push(message);referenceIssues.push({kind:'source' in item?'edge':'node',id:item.id,code:'reference',message})}
     for(const item of [...graph.nodes,...graph.edges])for(const ref of [...item.refs,...(item.boundaries||[]).flatMap(b=>b.refs)]){const target=projectPath(cwd,ref.path);if(!fs.existsSync(target)||!fs.statSync(target).isFile())warn(item,`${item.id}：代码文件不存在 ${ref.path}`);else if(fs.statSync(target).size<=2*1024*1024){if(!lineCounts.has(target))lineCounts.set(target,fs.readFileSync(target,'utf8').split(/\r?\n/).length);if(ref.line>lineCounts.get(target))warn(item,`${item.id}：代码行号不存在 ${ref.path}:${ref.line}`)}}
     const flow=inspectDataFlow(graph);flow.issues.push(...referenceIssues);flow.complete=flow.issues.length===0;flow.designComplete=flow.issues.every(i=>['pending-code','verification'].includes(i.code))
-    return {path:GRAPH_PATH,revision,graph,notes:this.readNotes(cwd).filter(n=>n.revision===revision),warnings:[...new Set(warnings)],flow}
+    return {path:GRAPH_PATH,revision,graph,notes:this.readNotes(cwd).filter(n=>n.revision===revision),warnings:[...new Set(warnings)],flow,exploration:inspectExploration(graph)}
   }
   prepare(cwd,scope){
     if(scope)this.refinementContext(cwd,{revision:scope.revision,targets:[{kind:'node',id:scope.nodeId}]})
     const folder='.claude/skills/workspace-topology/',destination=projectPath(cwd,folder+'SKILL.md'),source=fs.readFileSync(path.join(__dirname,'topology-skill.md'),'utf8')
     const manifestPath=projectPath(cwd,folder+'installation.json');let previous={}
     if(fs.existsSync(manifestPath)){try{previous=JSON.parse(fs.readFileSync(manifestPath,'utf8'))}catch{throw new Error('拓扑 Skill 安装记录损坏，未覆盖现有文件。')}}
-    const files={'SKILL.md':source,'validate.cjs':fs.readFileSync(__filename,'utf8'),'topology-flow.cjs':fs.readFileSync(path.join(__dirname,'topology-flow.cjs'),'utf8')}
+    const files={'SKILL.md':source,'validate.cjs':fs.readFileSync(__filename,'utf8'),'topology-flow.cjs':fs.readFileSync(path.join(__dirname,'topology-flow.cjs'),'utf8'),'topology-exploration.cjs':fs.readFileSync(path.join(__dirname,'topology-exploration.cjs'),'utf8')}
     const oldTemplate='96e92f592656235575cc6c16e23f143a72358df014ede8472751be95e633fae7'
     for(const [name,contents] of Object.entries(files)){
       const file=projectPath(cwd,folder+name)
@@ -80,6 +81,19 @@ class TopologyService{
   developmentGuidance(cwd){
     try{if(!fs.existsSync(projectPath(cwd,GRAPH_PATH)))return ''}catch{return ''}
     return `本项目使用双向业务拓扑 ${GRAPH_PATH}。当用户要求修改业务代码时，先按需读取拓扑定位相关模块的输入输出、连接和 acceptance，再实施；修改后同步更新受影响节点、边及真实 refs，保留无关结构和 planned 设计，不得把未实现功能标成 implemented。verification 是执行记录，只能依据实际测试填写 passed/failed；未运行填 pending 并解释。相关代码变化后重测或把旧 verification 记录改为 pending，不能沿用过期通过记录。设计与实际代码矛盾时明确说明，不能悄悄改变既定业务契约。只读问答不修改拓扑。若存在 .claude/skills/workspace-topology/SKILL.md，请读取其中的格式规范。`
+  }
+  explorationFollowup(cwd,request){
+    const current=this.read(cwd)
+    if(!current.graph)return {complete:false,blocked:true,reason:'尚未写入拓扑文件'}
+    const moduleIds=(request.targets||[]).map(t=>t.id)
+    if(moduleIds.some(id=>!current.graph.nodes.some(n=>n.id===id)))return {complete:false,blocked:true,reason:'原探索范围已被删除，不能自动扩大范围'}
+    const coverage=inspectExploration(current.graph,{moduleIds}),context=this.operationContext(cwd,{...request,revision:current.revision})
+    const scopeIds=new Set([...moduleIds,...(context.scope.descendants||[]).map(n=>n.id)])
+    const issues=current.flow.issues.filter(i=>!['pending-code','verification'].includes(i.code)&&(!moduleIds.length||i.kind==='graph'||i.kind==='node'&&scopeIds.has(i.id)||i.kind==='edge'&&context.scope.subtreeConnections?.some(e=>e.id===i.id)))
+    const pending=coverage.frontier.filter(n=>!n.blocked)
+    if(!pending.length&&!issues.length)return {complete:coverage.complete,blocked:!coverage.complete,reason:coverage.complete?'探索与数据流检查已完成':'剩余模块有明确阻塞，需用户处理',coverage}
+    return {complete:false,revision:current.revision,signature:hash(JSON.stringify([coverage.frontier,issues])),coverage,
+      prompt:`这是用户已请求的自动深度探索的继续，不是新任务。上一轮还没有完成，不得再次仅报告完成。继续处理当前范围 ${moduleIds.join('、')||'整个项目'}，从待展开队列派出下一批只读子代理，收齐结果后合并写图；不要重复扫描已完成模块。每个内部叶子必须有经代码核实的 exploration.state=leaf 与具体 reason；外部黑盒说明 external，真实无法继续写 blocked。不可凭空添加连线或伪造停止依据。\n待展开模块：${JSON.stringify(pending.slice(0,30))}\n数据流缺口：${JSON.stringify(issues.slice(0,30))}\n读取 .claude/skills/workspace-topology/SKILL.md，更新 ${GRAPH_PATH} 后运行 node .claude/skills/workspace-topology/validate.cjs --explore-auto${moduleIds.length?' --modules='+moduleIds.join(','):''}，检查 frontier 直到完成；保留原范围、未实现设计和现有 ID。`}
   }
   context(cwd,request){
     const current=this.read(cwd);if(!current.graph||request.revision!==current.revision)throw new Error('拓扑已更新，请刷新后重新选择。')
@@ -143,7 +157,8 @@ class TopologyService{
     const scope=modules.length?`探索范围仅为模块 ${modules.join('、')} 的内部子树及必要的调用边界。保持这些模块本身 ID、输入输出边界、祖先、未选中的兄弟模块及无关连接不变。这${modules.length}个模块范围是并集，不是整个项目；合并重复/重叠子树后按模块分派独立子代理，并核对所选模块之间的数据流。不得因多选而切换到全项目重建。`:'探索范围为整个项目的业务逻辑，包括入口、核心流程、持久化、状态变化、异步任务、失败路径及外部系统交互。先识别实际业务域再拆分，不能把目录结构直接当成业务结构。'
     const concurrency=request.parallel?'主模型必须优先使用当前 CLI 提供的原生 Agent/Task 子代理工具进行真正的并发探索，尽可能用满当前工具、模型与供应商允许的并发能力。优先在同一批中同时发出多个前台 Agent/Task 工具调用，保持主任务等待这一批真实的工具结果。不要默认设置 run_in_background=true 后仅靠“继续等待”的自然语言结束当前任务。确需后台代理时，必须使用当前可用的任务等待/读取结果工具显式收齐结果，再推进主任务。先分派所有可以独立分析的业务域或模块，数量超过可用并发时分批排队，不能只派一个代理后让其他模块闲置。每批结果汇总后，为下一层尚未覆盖的独立模块继续派出子代理，直到覆盖目标深度或达到明确停止条件。优先只读 Explore 类型（以实际可用工具为准），每个子代理负责一个不重叠的模块范围，返回结构化节点、数据流、真实代码引用、已覆盖入口及待核实事项。不要让子代理反复扫描整个代码库。所有子代理只读代码并返回分析，不得共同写入同一个拓扑文件；由主模型统一去重、核对边界连接、补齐跨模块关系，再一次合并写图。若工具不支持子代理或并发，必须如实说明限制并串行推进，不得伪造已调用代理或假报并发数量。':'由主模型分析所选范围，按业务模块逐项覆盖并统一汇总。'
     const regeneration=request.action==='regenerate'?'这是重新生成：从当前代码重新推导所选范围的结构，不能只润色已有说明。可以替换此范围内确已过时的节点、子树与连接；语义未变的模块尽量复用稳定 ID，并修正所有受影响的连接。节点范围的重新生成不得删除父模块或影响范围外结构。全图重新生成也不要无故重命名可复用 ID。':'这是探索补全：优先补齐未探索模块、缺失关系及指定深度，保留已确认且仍有代码依据的结构，不删除无关或既有更深的有效子树。'
-    return `先读取 .claude/skills/workspace-topology/SKILL.md 并遵守图格式。${scope}\n${depth}\n${concurrency}\n${regeneration}\n已有 status=planned 的设计节点和连接必须保留，代码尚未实现不等于设计过时，不得在探索或重新生成中删除它们来迎合代码；发现设计与实现矛盾时明确标注，不能悄悄改写契约。主模型维护覆盖清单，检查跨域数据流、异常分支、共享状态及数据库读写边界，并核对每条关系的代码依据。子代理发生错误时汇总失败范围并尝试重新分派；无法核实时保留待核实说明。外部黑盒无源码时明确边界，不虚构内部结构。只修改 ${GRAPH_PATH}，不修改业务代码、不执行生产请求，不读取密钥。写入前重新读取最新图并核对原始版本；有其他改动时先核实合并，不能覆盖。校验节点/连接 ID 唯一、parent 层级无循环、连接端点存在、代码引用真实。当前图上限 250 个节点、600 条边、1 MB；达到容量或运行限制时保留已验证结果并明确列出未探索范围，不宣称全量探索完成。所有子代理完成只代表探索阶段完成，不代表主任务完成；必须立即由主模型进入去重、合并、写入和图格式校验，不得停在“子代理全部返回”或“之后再合并”。写入后必须运行 node .claude/skills/workspace-topology/validate.cjs 并读取实际结果，不能自行口头宣布通过。未通过时继续修复，无法证明的关系标为 unresolved 并报告未完成，不得为了过检虚构边或随意标终点。只有实际写图并通过数据流检查（或核实无需变更且明确说明依据）才报告拓扑完整交付。最后报告实际子代理数量、已覆盖模块、达到的深度、未完成项和停止原因；实际代理进度通过原生子代理事件展示。`
+    const recursive=request.depth==='auto'?`自动深度不是只画顶层：维护待展开队列，完成一层后立即派发下一层，直到队列为空。不能把“功能完整”“单一用途”当作未经阅读实现的停止理由。只有阅读实现后确认没有独立业务步骤的叶子才写 exploration:{state:"leaf",reason:"具体代码依据与为何不可再分"}；不可见外部/存储黑盒写 state:"external"；受限或未核实写 state:"blocked" 并保留为未完成。写图后必须运行 node .claude/skills/workspace-topology/validate.cjs --explore-auto${modules.length?' --modules='+modules.join(','):''}，根据 frontier 继续探索，不得把未完成清单当作成功报告。` : ''
+    return `先读取 .claude/skills/workspace-topology/SKILL.md 并遵守图格式。${scope}\n${depth}\n${recursive}\n${concurrency}\n${regeneration}\n已有 status=planned 的设计节点和连接必须保留，代码尚未实现不等于设计过时，不得在探索或重新生成中删除它们来迎合代码；发现设计与实现矛盾时明确标注，不能悄悄改写契约。主模型维护覆盖清单，检查跨域数据流、异常分支、共享状态及数据库读写边界，并核对每条关系的代码依据。子代理发生错误时汇总失败范围并尝试重新分派；无法核实时保留待核实说明。外部黑盒无源码时明确边界，不虚构内部结构。只修改 ${GRAPH_PATH}，不修改业务代码、不执行生产请求，不读取密钥。写入前重新读取最新图并核对原始版本；有其他改动时先核实合并，不能覆盖。校验节点/连接 ID 唯一、parent 层级无循环、连接端点存在、代码引用真实。当前图上限 250 个节点、600 条边、1 MB；达到容量或运行限制时保留已验证结果并明确列出未探索范围，不宣称全量探索完成。所有子代理完成只代表探索阶段完成，不代表主任务完成；必须立即由主模型进入去重、合并、写入和图格式校验，不得停在“子代理全部返回”或“之后再合并”。写入后必须运行 node .claude/skills/workspace-topology/validate.cjs 并读取实际结果，不能自行口头宣布通过。未通过时继续修复，无法证明的关系标为 unresolved 并报告未完成，不得为了过检虚构边或随意标终点。只有实际写图并通过数据流检查（或核实无需变更且明确说明依据）才报告拓扑完整交付。最后报告实际子代理数量、已覆盖模块、达到的深度、未完成项和停止原因；实际代理进度通过原生子代理事件展示。`
   }
   prompt(cwd,request){
     const workflow=['design','implement','sync'].includes(request.action),operation=['explore','regenerate'].includes(request.action),context=workflow?this.workflowContext(cwd,request):operation?this.operationContext(cwd,request):request.action==='refine'?this.refinementContext(cwd,request):this.context(cwd,request),message=text(request.text,'问题或修改要求',6000)
@@ -165,6 +180,7 @@ module.exports={TopologyService,validateGraph,projectPath,GRAPH_PATH}
 if(require.main===module){
   try{const design=process.argv.includes('--design'),cwd=process.argv.slice(2).find(a=>!a.startsWith('--'))||process.cwd(),result=new TopologyService(path.join(__dirname,'.validation-notes-unused')).read(cwd)
     if(!result.graph)throw new Error('拓扑文件不存在')
-    console.log(JSON.stringify({revision:result.revision,...result.flow},null,2));process.exitCode=(design?result.flow.designComplete:result.flow.complete)?0:1
+    const auto=process.argv.includes('--explore-auto'),moduleIds=(process.argv.find(a=>a.startsWith('--modules='))||'').slice(10).split(',').filter(Boolean),exploration=auto?inspectExploration(result.graph,{moduleIds}):undefined
+    console.log(JSON.stringify({revision:result.revision,...result.flow,...(exploration?{exploration}:{})},null,2));process.exitCode=((design?result.flow.designComplete:result.flow.complete)&&(!auto||exploration.complete))?0:1
   }catch(error){console.error(error.message);process.exitCode=1}
 }

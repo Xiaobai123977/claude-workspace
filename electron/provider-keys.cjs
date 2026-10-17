@@ -3,6 +3,9 @@ const {normalizeModel}=require('./model-profile.cjs')
 
 function normalizeProvider(input) {
   const p=structuredClone(input)
+  // Old connections inherited 120s without an explicit wait policy. Preserve
+  // other custom durations, while migrating that old default to continuous wait.
+  p.timeoutMode??=(p.timeout!=null&&p.timeout!==0&&p.timeout!==120000)?'limited':'unlimited'
   p.weight=p.weight??1;p.enabled=p.enabled!==false
   if(!Array.isArray(p.keys))p.keys=[{id:'primary',name:'Key 1',weight:1,enabled:true,key:p.key,keyEnv:p.keyEnv,encryptedKey:p.encryptedKey,hasKey:p.hasKey,models:p.models||[],checkedAt:p.models?.length?Math.max(1,...p.models.map(m=>m.fetchedAt||1)):undefined}]
   p.keys=p.keys.map((key,index)=>({...key,id:key.id||crypto.randomUUID(),name:key.name||`Key ${index+1}`,weight:key.weight??1,enabled:key.enabled!==false,models:(key.models||[]).map(m=>normalizeModel({...m,detected:m.detected??(m.source==='server'||!!m.fetchedAt)}))}))

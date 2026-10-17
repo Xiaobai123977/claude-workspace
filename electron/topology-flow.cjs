@@ -4,6 +4,7 @@ function inspectDataFlow(graph){
   if(!graph.nodes.length)add('graph','','empty-graph','尚无业务模块，不能视为完整设计')
   if(graph.flowVersion!==1)add('graph','','legacy','旧图尚未声明数据流协议，需要补齐输入来源和输出去向')
   for(const edge of graph.edges){
+    if(edge.verification?.status==='failed')add('edge',edge.id,'verification',`${edge.label}：验证记录失败 · ${edge.verification.summary}`)
     for(const [field,node,ports] of [['sourceOutputs',byId.get(edge.source),'outputs'],['targetInputs',byId.get(edge.target),'inputs']]){
       if(!edge[field]?.length)add('edge',edge.id,'unmapped',`${edge.label}：未绑定${field==='sourceOutputs'?'来源输出':'目标输入'}`)
       for(const port of edge[field]||[])if(!node?.[ports].includes(port))add('edge',edge.id,'invalid-port',`${edge.label}：${node?.label}不存在端口「${port}」`)

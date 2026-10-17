@@ -15,25 +15,33 @@ function retryDelay(headers, attempt, { baseDelayMs = 1000, maxDelayMs = 30000, 
 }
 
 // Retry only before a response is returned to the caller. Streaming output is never replayed.
-async function fetchWithRetry(fetcher, url, init, { timeout = 120000, onRetry = () => {}, policy = {}, prepare, shouldRetry, getDelay } = {}) {
+async function fetchWithRetry(fetcher, url, init, { timeout = 0, onRetry = () => {}, policy = {}, prepare, shouldRetry, getDelay } = {}) {
   const maxRetries = policy.maxRetries ?? 10
   const requestId = require('node:crypto').randomUUID()
   const emit = event => { try { onRetry({ requestId, maxRetries, ...event }) } catch { /* UI observers must not break requests. */ } }
-  let retries = 0, release = () => {}, lastReason
+  let retries = 0, release = () => {}, lastReason, queued=false
   try {
     while (true) {
       init.signal?.throwIfAborted()
-      const prepared=await prepare?.()
+      let prepared
+      try{prepared=await prepare?.()}catch(error){
+        if(!(error.retryAfterMs>0)||error.noRetry)throw error
+        // Waiting for another request's cooldown is scheduling, not an upstream
+        // attempt. Do not turn it into a fake HTTP failure or spend retry budget.
+        queued=true;emit({phase:'waiting',attempt:retries,reason:'routing',nextAt:Date.now()+error.retryAfterMs})
+        await sleep(error.retryAfterMs+5,undefined,{signal:init.signal});continue
+      }
       init.signal?.throwIfAborted()
+      if(queued){emit({phase:'cleared'});queued=false}
       const attempt = new AbortController()
       let timedOut = false
       const abort = () => attempt.abort(init.signal.reason)
       init.signal?.addEventListener('abort', abort, { once: true })
-      const attemptTimeout=prepared?.timeout||timeout,startedAt=Date.now()
-      const reportAttempt=()=>emit({phase:retries?'attempting':'requesting',attempt:retries,...(lastReason||{reason:'pending'}),startedAt,timeoutAt:startedAt+attemptTimeout})
+      const attemptTimeout=prepared?.timeout??timeout,startedAt=Date.now()
+      const reportAttempt=()=>emit({phase:retries?'attempting':'requesting',attempt:retries,reason:'pending',startedAt,...(attemptTimeout>0?{timeoutAt:startedAt+attemptTimeout}:{})})
       const progressTimer=retries?undefined:setTimeout(reportAttempt,policy.noticeDelayMs??10000)
       if(retries)reportAttempt()
-      const timer = setTimeout(() => { timedOut = true; attempt.abort() }, attemptTimeout)
+      const timer = attemptTimeout>0?setTimeout(() => { timedOut = true; attempt.abort(Object.assign(new Error('本地设置的请求超时'),{code:'GATEWAY_TIMEOUT'})) }, attemptTimeout):undefined
       release = () => { clearTimeout(timer); clearTimeout(progressTimer);init.signal?.removeEventListener('abort', abort);attempt.abort() }
       let response, error
       try { response = await fetcher(url, { ...init, signal: attempt.signal }) } catch (e) { error = e }
@@ -62,7 +70,7 @@ async function fetchWithRetry(fetcher, url, init, { timeout = 120000, onRetry = 
       release()
       void response?.body?.cancel().catch(() => {})
       retries++
-      lastReason = response?.headers.get('x-claude-gui-stream-error')==='true'?{reason:'upstream',errorType:decodeURIComponent(response.headers.get('x-claude-gui-error-type')||''),...(response.headers.has('x-claude-gui-upstream-status')?{status:Number(response.headers.get('x-claude-gui-upstream-status'))}:{})}:(typeof error?.code==='string'&&error.code.startsWith('UPSTREAM_'))?{reason:'upstream',errorType:error.code==='UPSTREAM_EMPTY_RESPONSE'?'未返回有效内容':'响应格式错误'}:{ reason: response ? 'http' : timedOut ? 'timeout' : 'network', ...(response ? { status: response.status } : {}) }
+      lastReason = response?.headers.get('x-claude-gui-local-error')==='true'?{reason:'routing'}:response?.headers.get('x-claude-gui-stream-error')==='true'?{reason:'upstream',errorType:decodeURIComponent(response.headers.get('x-claude-gui-error-type')||''),...(response.headers.has('x-claude-gui-upstream-status')?{status:Number(response.headers.get('x-claude-gui-upstream-status'))}:{})}:(typeof error?.code==='string'&&error.code.startsWith('UPSTREAM_'))?{reason:'upstream',errorType:error.code==='UPSTREAM_EMPTY_RESPONSE'?'未返回有效内容':'响应格式错误'}:{ reason: response ? 'http' : timedOut ? 'timeout' : 'network', ...(response ? { status: response.status } : {}) }
       emit({ phase: 'waiting', attempt: retries, nextAt: Date.now() + delay, ...lastReason })
       await sleep(delay, undefined, { signal: init.signal })
     }

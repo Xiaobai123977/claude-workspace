@@ -1,6 +1,6 @@
 {
   "name": "claude-workspace",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -23,6 +23,7 @@
     "test:quick-memory-ui": "node scripts/quick-memory-ui-test.mjs",
     "test:model-image-input-ui": "node scripts/model-image-input-ui-test.mjs",
     "test:topology-ui": "node scripts/topology-ui-test.mjs",
+    "test:topology-business-flow-ui": "node scripts/topology-business-flow-ui-test.mjs",
     "test:topology-exploration-ui": "node scripts/topology-exploration-ui-test.mjs",
     "test:effort-slider-ui": "node scripts/effort-slider-ui-test.mjs",
     "test:agent-activity-ui": "node scripts/agent-activity-ui-test.mjs",
@@ -37,6 +38,7 @@
     "test:settings-dirty-ui": "node scripts/settings-dirty-ui-test.mjs",
     "test:workbench-ui": "node scripts/workbench-ui-test.mjs",
     "test:gateway-retry-ui": "node scripts/gateway-retry-ui-test.mjs",
+    "test:gateway-failover-real-cli": "node scripts/gateway-failover-real-cli.cjs",
     "test:final-error-retry-ui": "node scripts/final-error-retry-ui-test.mjs",
     "test:model-routing-ui": "node scripts/model-routing-ui-test.mjs",
     "test:browser-ui": "node scripts/browser-ui-test.mjs",

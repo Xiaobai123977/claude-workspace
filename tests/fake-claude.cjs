@@ -24,10 +24,16 @@ function request(tool, data, callback, extra = {}) {
   return requestId
 }
 function turn(prompt, hasImage = false) {
-  if(process.env.CLAUDE_GUI_TEST_TOPOLOGY_PROOF)fs.writeFileSync(process.env.CLAUDE_GUI_TEST_TOPOLOGY_PROOF,JSON.stringify({prompt,hasImage}))
+  if(process.env.CLAUDE_GUI_TEST_TOPOLOGY_PROOF){const file=process.env.CLAUDE_GUI_TEST_TOPOLOGY_PROOF;if(prompt.startsWith('这是用户已请求的自动深度探索的继续')&&fs.existsSync(file)){const proof=JSON.parse(fs.readFileSync(file,'utf8'));proof.continuations??=[];proof.continuations.push(prompt);fs.writeFileSync(file,JSON.stringify(proof))}else fs.writeFileSync(file,JSON.stringify({prompt,hasImage}))}
   if (process.env.CLAUDE_GUI_TEST_PROOF) fs.writeFileSync(process.env.CLAUDE_GUI_TEST_PROOF, JSON.stringify({ maxContextTokens:process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,autoCompactWindow:process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,maxOutputTokens:process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,model: runtimeSettings.model, effort: runtimeSettings.effortLevel, hasToken: !!runtimeSettings.env?.ANTHROPIC_AUTH_TOKEN, hasModelFlag: args.includes('--model'), configurationDirectory: process.env.CLAUDE_CONFIG_DIR }))
   if (!initialized) { initialized = true; emit({ type: 'system', subtype: 'init', session_id: id, model: runtimeSettings.model || 'sonnet' }) }
   state('busy'); turns++
+  if(process.env.CLAUDE_GUI_TEST_TOPOLOGY_AUTO){
+    const path=require('node:path'),graphs=JSON.parse(fs.readFileSync(process.env.CLAUDE_GUI_TEST_TOPOLOGY_AUTO,'utf8')),graph=graphs[Math.min(turns-1,graphs.length-1)],file=path.join(process.cwd(),'.claude','workspace-topology.json')
+    fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,JSON.stringify(graph,null,2))
+    if(process.env.CLAUDE_GUI_TEST_TOPOLOGY_AUTO_WAIT&&turns>1)return
+    later(()=>finish(turns===1?'顶层业务已整理。':'已继续核实内部实现，叶子依据与数据流已补全。'),200);return
+  }
   if(process.env.CLAUDE_GUI_TEST_FINAL_RETRY&&prompt.startsWith('FINAL_RETRY_')){
     const file=process.env.CLAUDE_GUI_TEST_FINAL_RETRY
     fs.appendFileSync(file,JSON.stringify({prompt,id,time:Date.now()})+'\n')

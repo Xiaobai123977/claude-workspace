@@ -1,7 +1,7 @@
 const crypto=require('node:crypto'),zlib=require('node:zlib')
 const {startProxy,convertRequest,endpoint}=require('./provider-proxy.cjs')
 const {resolvedModel}=require('./model-profile.cjs')
-function signature(p,m){return crypto.createHash('sha256').update(JSON.stringify([p.baseUrl,p.protocol,p.auth,p.key,p.headers,p.extraBody,p.thinking,p.thinkingBudget,p.outputTokenField,p.timeout,m.reported,m.overrides,m.request,m.defaultEffort,p.models.find(x=>x.id===m.id)?.defaultEffort])).digest('hex')}
+function signature(p,m){return crypto.createHash('sha256').update(JSON.stringify([p.baseUrl,p.protocol,p.auth,p.key,p.headers,p.extraBody,p.thinking,p.thinkingBudget,p.outputTokenField,p.timeout,p.timeoutMode,m.reported,m.overrides,m.request,m.defaultEffort,p.models.find(x=>x.id===m.id)?.defaultEffort])).digest('hex')}
 function redact(value,secret=''){
   if(Array.isArray(value))return value.map(v=>redact(v,secret))
   if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,/api.?key|authorization|password|secret|credential|access.?token|auth.?token|^encryptedKey$|^key$|^data$/i.test(k)?'[已隐藏]':redact(v,secret)]))
