@@ -36,6 +36,7 @@
     "test:settings-ui": "node scripts/settings-ui-test.mjs",
     "test:workbench-ui": "node scripts/workbench-ui-test.mjs",
     "test:gateway-retry-ui": "node scripts/gateway-retry-ui-test.mjs",
+    "test:final-error-retry-ui": "node scripts/final-error-retry-ui-test.mjs",
     "test:model-routing-ui": "node scripts/model-routing-ui-test.mjs",
     "test:browser-ui": "node scripts/browser-ui-test.mjs",
     "test:browser-real-cli": "node scripts/browser-real-cli-test.mjs",

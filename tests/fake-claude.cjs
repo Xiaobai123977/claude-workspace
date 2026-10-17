@@ -28,6 +28,14 @@ function turn(prompt, hasImage = false) {
   if (process.env.CLAUDE_GUI_TEST_PROOF) fs.writeFileSync(process.env.CLAUDE_GUI_TEST_PROOF, JSON.stringify({ maxContextTokens:process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,autoCompactWindow:process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,maxOutputTokens:process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,model: runtimeSettings.model, effort: runtimeSettings.effortLevel, hasToken: !!runtimeSettings.env?.ANTHROPIC_AUTH_TOKEN, hasModelFlag: args.includes('--model'), configurationDirectory: process.env.CLAUDE_CONFIG_DIR }))
   if (!initialized) { initialized = true; emit({ type: 'system', subtype: 'init', session_id: id, model: runtimeSettings.model || 'sonnet' }) }
   state('busy'); turns++
+  if(process.env.CLAUDE_GUI_TEST_FINAL_RETRY&&prompt.startsWith('FINAL_RETRY_')){
+    const file=process.env.CLAUDE_GUI_TEST_FINAL_RETRY
+    fs.appendFileSync(file,JSON.stringify({prompt,id,time:Date.now()})+'\n')
+    const count=fs.readFileSync(file,'utf8').trim().split('\n').map(JSON.parse).filter(e=>e.prompt===prompt).length
+    if(prompt==='FINAL_RETRY_RECOVER'&&count>=3){finish('Recovered after outer retries');return}
+    if(prompt==='FINAL_RETRY_EXIT')process.exit(7)
+    finish('', 'fixture raw error: model unavailable HTTP 404');return
+  }
   if(prompt.includes('代理完成后汇总验证')){
     const path=require('node:path'),file=path.join(process.cwd(),'merged.json'),tool='merge-worker'
     emit({type:'assistant',uuid:crypto.randomUUID(),message:{id:'merge-launch',content:[{type:'tool_use',id:tool,name:'Agent',input:{description:'探索模块'}}]}})

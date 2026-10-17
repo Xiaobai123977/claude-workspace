@@ -22,6 +22,7 @@ const {modelImageInput,TEXT_ONLY_PROMPT}=require('./model-image-input.cjs')
 const {TopologyService}=require('./topology.cjs')
 const {CompletionAlerts,validateAlertPreferences}=require('./completion-alerts.cjs')
 const {mainEvent,observeRunEvent,finishDisposition,agentProgress}=require('./run-lifecycle.cjs')
+const {nextFinalRetry,DELAY_MS}=require('./final-error-retry.cjs')
 
 if (process.env.CLAUDE_GUI_DATA_DIR) app.setPath('userData', process.env.CLAUDE_GUI_DATA_DIR)
 app.setName('Claude Workspace')
@@ -226,6 +227,24 @@ function finishRun(id, run, code = 0) {
   run.completed = true; clearTimeout(run.finishTimer); clearTimeout(run.stopTimer)
   cancelApprovals(run.message)
   run.accumulator.finish(code, run.stderr, run.stopped)
+  const retry=nextFinalRetry(run)
+  if(retry){
+    run.finalRetries=retry.attempt;run.retryWaiting=true
+    // Detach callbacks before closing, so late output cannot reopen this turn.
+    if(run.connection)run.connection.current=null
+    disconnectSession(id)
+    run.message.status='running';delete run.message.error
+    run.message.gatewayRetries=[retry];notify(true)
+    run.finalRetryTimer=setTimeout(async()=>{
+      if(run.stopped||runs.get(id)!==run)return
+      run.retryWaiting=false;run.completed=false;run.message.gatewayRetries=[{...retry,phase:'attempting'}]
+      run.accumulator.error='';run.accumulator.result=null
+      run.mainResultFresh=false;run.hasSessionState=false;run.sessionState=undefined;run.tasks.clear();run.stderr=''
+      try{await startTurnImpl(id,run.retryInput.prompt,[],[],run.retryInput.replay,[],run)}
+      catch(error){run.accumulator.error=error.message;finishRun(id,run,1)}
+    },DELAY_MS)
+    return
+  }
   if(run.changeTracker)void turnChanges.finish(id,run.message.id,run.changeTracker).then(summary=>{
     const session=state.sessions.find(s=>s.id===id);if(!session||!summary?.files.length)return
     const message=session.messages.find(m=>m.id===run.message.id);if(message){message.changes=summary;notify(true)}
@@ -298,7 +317,7 @@ async function startTurn(id, prompt, ids = [],browserContexts=[],replay,topology
   starting.add(id)
   try { await turnChanges.wait(id);return await startTurnImpl(id, prompt, ids,browserContexts,replay,topologyRequests) } finally { starting.delete(id) }
 }
-async function startTurnImpl(id, prompt, ids = [],browserContexts=[],replay,topologyRequests=[]) {
+async function startTurnImpl(id, prompt, ids = [],browserContexts=[],replay,topologyRequests=[],retryRun) {
   const session = sessionById(id)
   if (typeof prompt !== 'string' || prompt.length > 1000000) throw new Error('输入过长')
   if(!Array.isArray(browserContexts)||browserContexts.length>10||JSON.stringify(browserContexts).length>60000)throw new Error('网页元素上下文过多，请分次发送')
@@ -311,7 +330,7 @@ async function startTurnImpl(id, prompt, ids = [],browserContexts=[],replay,topo
   const topologyContext=topologyRequests.map(request=>topology.prompt(session.cwd,request)).join('\n\n')
   const topologySelection=topologyRequests.length?{displayText:prompt,requests:topologyRequests.map(r=>({...r,summary:String(r.summary||r.targets.map(t=>t.id).join('、')).slice(0,500)})),context:topologyContext}:replay?.topologySelection
   const pageContext=session.browserEnabled&&!session.options?.safeMode?require('./browser-tools.cjs').browserContext(browser.state(id)):''
-  const input = replay ? claude.makeInput(prompt,[],true) : claude.makeInput(prompt+context+pageContext+(topologyContext?'\n\n'+topologyContext:''), attachments, true)
+  const input = retryRun?.retryInput.input || (replay ? claude.makeInput(prompt,[],true) : claude.makeInput(prompt+context+pageContext+(topologyContext?'\n\n'+topologyContext:''), attachments, true))
   const runtime = await sessionRuntime(session)
   let args, key
   try {
@@ -321,16 +340,17 @@ async function startTurnImpl(id, prompt, ids = [],browserContexts=[],replay,topo
     key = crypto.createHash('sha256').update(JSON.stringify({ cli, args: stableArgs, sources: nativeSources, extensionRevision, extensions: extensions.fingerprint(session.cwd),
       settings: runtime.settingsPath ? fs.readFileSync(runtime.settingsPath, 'utf8') : '', env: runtime.env })).digest('hex')
   } catch (error) { runtime.cleanup(); throw error }
-  session.messages.push({ id: uid(), role: 'user', text: topologySelection?.displayText??prompt,...(topologySelection?{topologySelection}:{}), attachments,...(browserContexts.length?{browserContexts}:{}), time: Date.now(), tools: [], status: 'done',pendingNative:true })
+  if(!retryRun)session.messages.push({ id: uid(), role: 'user', text: topologySelection?.displayText??prompt,...(topologySelection?{topologySelection}:{}), attachments,...(browserContexts.length?{browserContexts}:{}), time: Date.now(), tools: [], status: 'done',pendingNative:true })
   if (session.title === '新聊天' && prompt.trim()) session.title = prompt.trim().replace(/\s+/g, ' ').slice(0, 30)
   session.updatedAt = Date.now()
-  const message = { id: uid(), role: 'assistant', text: '', thinking: '', time: Date.now(), tools: [], status: 'running',pendingNative:true,contextKey:contextKey(session) }
+  const message = retryRun?.message || { id: uid(), role: 'assistant', text: '', thinking: '', time: Date.now(), tools: [], status: 'running',pendingNative:true,contextKey:contextKey(session) }
   if(replay&&session.regeneration)session.regeneration.answerId=message.id
-  session.messages.push(message)
-  const run = { stopped: false, stderr: '', child: null, message, tasks: new Set(), completed: false,topologyTask:!!topologySelection?.requests?.some(r=>['explore','regenerate','refine','design','implement','sync'].includes(r.action)) }
-  run.changeTracker=await turnChanges.begin(session.cwd)
+  if(!retryRun)session.messages.push(message)
+  const run = retryRun || { stopped: false, stderr: '', child: null, message, tasks: new Set(), completed: false,topologyTask:!!topologySelection?.requests?.some(r=>['explore','regenerate','refine','design','implement','sync'].includes(r.action)) }
+  run.retryInput??={prompt,input,replay:{attachments,topologySelection}}
+  if(!retryRun)run.changeTracker=await turnChanges.begin(session.cwd)
   runs.set(id, run)
-  run.accumulator = new TurnAccumulator(message, nativeId => { session.nativeId = nativeId; session.forkPending = false; delete session.resumeAt })
+  if(!retryRun)run.accumulator = new TurnAccumulator(message, nativeId => { session.nativeId = nativeId; session.forkPending = false; delete session.resumeAt })
   try {
     let connection = connections.get(id)
     if (connection && (connection.key !== key || connection.client.closed || connection.client.closing)) {
@@ -360,7 +380,7 @@ async function startTurnImpl(id, prompt, ids = [],browserContexts=[],replay,topo
       run.child = connection.client.child; run.connection = connection
     }
     if (run.stopped) { run.connection.client.close(); finishRun(id, run); return { messageId: message.id } }
-    const userInput = JSON.parse(input); userInput.uuid = session.messages.at(-2).id
+    const userInput = JSON.parse(input); userInput.uuid = retryRun?uid():session.messages.at(-2).id
     run.connection.client.write(userInput)
   } catch (err) {
     runtime.cleanup()
@@ -757,6 +777,7 @@ app.whenReady().then(() => {
     const run = runs.get(id)
     if (!run || run.stopped) return
     run.stopped = true; delete run.message.gatewayRetries; providers.cancelSession(id); cancelApprovals(run.message); notify(true)
+    if(run.retryWaiting){clearTimeout(run.finalRetryTimer);run.retryWaiting=false;run.completed=false;finishRun(id,run,1);return}
     // Stop the turn through the protocol first; killing the process is a fallback.
     run.stopTimer = setTimeout(() => { run.connection?.client.close(true); finishRun(id, run, 1) }, 8000)
     if (run.connection) void run.connection.client.request({ subtype: 'interrupt' }).catch(() => run.connection.client.close(true))

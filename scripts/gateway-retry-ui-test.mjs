@@ -70,7 +70,7 @@ try{
   await page.evaluate(async()=>{const p=(await window.workspace.providers())[0];await window.workspace.saveProvider(p)})
   mode='exhausted';requests=0
   await send('Retry exhaustion fixture, no tools.')
-  const exhausted=await finished();assert.equal(exhausted.status,'error');assert.equal(requests,11)
+  const exhausted=await finished();assert.equal(exhausted.status,'error');assert.equal(requests,44) // 11 original attempts in each of four outer attempts.
   assert.match(exhausted.error,/PRIVATE_FIXTURE_ERROR/) // Preserve the fixture's actual upstream wording; this is not a configured credential.
   assert.equal(await page.locator('.gateway-retry').count(),0)
   mode='stream-error';requests=0
@@ -86,5 +86,5 @@ try{
   await page.locator('.gateway-retry').filter({hasText:/上游请求超时.*1\/10/}).waitFor({timeout:10000})
   const heartbeatRecovered=await finished();assert.equal(heartbeatRecovered.status,'done');assert.equal(requests,2)
   assert.deepEqual(errors,[])
-  console.log('Gateway retry UI passed with real CLI: 429/503 progress and recovery, identical replay bodies, immediate stop, chat isolation, 401 no retry, ten-retry limit without downstream retry multiplication, transient status cleanup, HTTP-200 stream errors, heartbeat-only timeout/recovery and visible upstream deadlines.')
+  console.log('Gateway retry UI passed with real CLI: unchanged 429/503 recovery, identical bodies, stop, isolation, 401 key suspension, ten gateway retries per outer attempt (44 requests total), status cleanup, HTTP-200 stream errors and heartbeat-only timeout/recovery.')
 }finally{await app.close();server.close();console.log('Isolated retry fixture: '+data)}
