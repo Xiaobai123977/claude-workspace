@@ -1,6 +1,18 @@
 # Claude Workspace
 
-Claude Code CLI 的 Windows 桌面界面。在一个窗口里管理项目、聊天、模型和代码变更。
+为 Claude Code CLI 提供接近 Codex 体验的 Windows 图形化界面，保留大部分原生能力，让命令、项目配置和模型接入都能在界面中操作。
+
+内置小型 API 网关，将不同协议及部分不规范的上游响应统一适配为 Claude CLI 可用的本地接口，通过重试、备用线路和多 Key 调度提升调用稳定性。
+
+## 主要功能
+
+- **图形化工作区**：对标 Codex 的使用体验，提供项目侧栏、流式聊天、工具审批、子代理记录、分支与重新生成。
+- **原生命令与快捷输入**：支持 `/` 命令与 Skills、`@` 引用项目文件、`#` 快速记忆；常用命令附中文用途，部分交互命令通过图形界面操作。
+- **可视化配置 `.claude`**：在界面中调整权限、CLAUDE.md、规则、记忆、Hooks、插件与 MCP，管理个人及项目配置。
+- **内置 API 网关**：适配 Anthropic Messages、OpenAI Chat Completions 和 Responses，统一请求、流式响应与工具调用格式。
+- **容灾与重试**：上游限流、临时故障或超时时自动重试，并在兼容线路间切换；聊天中显示等待原因和重试进度。
+- **一个模型，多条线路**：多个供应商共同服务一个模型，支持不同模型 ID 手动映射、多 Key 加权轮询、供应商权重和会话粘性路由。
+- **开发辅助**：代码变更审阅、内置浏览器与网页元素批注，以及可逐层展开、批注和讨论的业务拓扑。
 
 ## 下载安装
 
@@ -10,30 +22,22 @@ Claude Code CLI 的 Windows 桌面界面。在一个窗口里管理项目、聊�
 
 安装版不需要另装 Node.js。遇到环境问题，可下载同页的 **Environment-Check.zip**，解压后双击 `Check-Environment.cmd`，缺少工具时会询问是否安装。
 
-## 主要功能
-
-- **项目聊天**：共用 Claude CLI 会话，支持分支、重新生成和文件引用。
-- **模型接入**：订阅或自定义 API，多供应商、多 Key、模型切换与自动重试。
-- **代码开发**：工具审批、子代理记录、代码差异、网页预览与元素批注。
-- **业务拓扑**：探索模块关系、逐层展开，通过批注讨论与修改项目。
-- **扩展与设置**：插件、Skills、MCP、权限、记忆及任务完成提醒。
-
 ## 界面演示
 
 **聊天与模型选择**
 
 ![聊天与模型选择](docs/images/chat-and-models.png)
 
-**业务拓扑与批注**
+**供应商与模型管理**
 
-![业务拓扑与批注](docs/images/business-topology.png)
+![供应商与模型管理](docs/images/providers.png)
 
 <details>
-<summary>查看更多：常规设置与供应商管理</summary>
+<summary>查看更多：常规设置与业务拓扑</summary>
 
 ![常规设置](docs/images/general-settings.png)
 
-![供应商管理](docs/images/providers.png)
+![业务拓扑与批注](docs/images/business-topology.png)
 
 </details>
 
@@ -52,7 +56,7 @@ npm start
 
 ## 更多说明
 
-[详细使用](docs/usage-reference.md) · [环境检查](docs/windows-environment.md) · [业务拓扑](docs/business-topology.md) · [供应商路由](docs/model-routing.md)
+[命令与快捷输入](docs/claude-command-interaction.md) · [供应商路由](docs/model-routing.md) · [网关重试](docs/gateway-retry.md) · [业务拓扑](docs/business-topology.md) · [详细使用](docs/usage-reference.md) · [环境检查](docs/windows-environment.md)
 
 ## 许可证
 
