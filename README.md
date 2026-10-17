@@ -1,204 +1,59 @@
 # Claude Workspace
 
-基于本机 Claude Code CLI 的桌面 GUI，使用 Electron、React 与 TypeScript。界面参考 Codex 的项目侧栏、聊天布局和底部命令菜单。
+Claude Code CLI 的 Windows 桌面界面。在一个窗口里管理项目、聊天、模型和代码变更。
 
-## 下载使用
+## 下载安装
 
-前往 [Releases](https://github.com/Xiaobai123977/claude-workspace/releases/latest) 下载 Windows x64 安装包：
+1. 安装 [Claude Code CLI](https://code.claude.com/docs/en/setup)。
+2. 前往 [下载页面](https://github.com/Xiaobai123977/claude-workspace/releases/latest)，选择 **Setup 安装版**（推荐）或便携版。
+3. 打开应用，使用本机 Claude 登录，或填写自己的 API 地址和 Key。
 
-- **推荐安装版**：`Claude-Workspace-Setup-0.1.1-x64.exe`，安装后从桌面或开始菜单启动。
-- **便携版**：`Claude-Workspace-0.1.1-x64.exe`，无需安装，每次启动需要解压，速度稍慢。
-- `SHA256SUMS.txt` 提供文件的 SHA-256 校验值。
+安装版不需要另装 Node.js。遇到环境问题，可下载同页的 **Environment-Check.zip**，解压后双击 `Check-Environment.cmd`，缺少工具时会询问是否安装。
 
-使用前需要自行安装 Claude Code CLI。应用不附带 Claude 账户、订阅或 API Key，可沿用本机登录或配置自己的 API 供应商。安装版包含 GUI 运行时，使用者无需另装 Node.js；从源码开发需要 Node.js。
+## 主要功能
+
+- **项目聊天**：共用 Claude CLI 会话，支持分支、重新生成和文件引用。
+- **模型接入**：订阅或自定义 API，多供应商、多 Key、模型切换与自动重试。
+- **代码开发**：工具审批、子代理记录、代码差异、网页预览与元素批注。
+- **业务拓扑**：探索模块关系、逐层展开，通过批注讨论与修改项目。
+- **扩展与设置**：插件、Skills、MCP、权限、记忆及任务完成提醒。
 
 ## 界面演示
 
-### 聊天与模型切换
+**聊天与模型选择**
 
-按项目组织聊天，切换当前接入的模型、调整思考强度及图片输入设置。
+![聊天与模型选择](docs/images/chat-and-models.png)
 
-![聊天工作区、模型选择与思考强度](docs/images/chat-and-models.png)
+**业务拓扑与批注**
 
-### 业务拓扑与批注
+![业务拓扑与批注](docs/images/business-topology.png)
 
-在独立画布中查看模块关系，逐层展开内部拓扑，选中模块后通过浮动窗口提问或批注；画布同时显示数据流完整性检查状态。
+<details>
+<summary>查看更多：常规设置与供应商管理</summary>
 
-![业务拓扑画布与模块浮动批注窗口](docs/images/business-topology.png)
+![常规设置](docs/images/general-settings.png)
 
-### 常规设置
+![供应商管理](docs/images/providers.png)
 
-查看 Claude CLI 安装状态，设置长任务提示音、桌面通知和聊天字号。
+</details>
 
-![常规设置与任务完成提醒](docs/images/general-settings.png)
+## 从源码运行
 
-### 连接与供应商管理
-
-选择本机 Claude 订阅或自定义 API，展开供应商卡片调整连接，并管理模型服务池与配置备份。
-
-![连接方式与可展开的供应商卡片](docs/images/providers.png)
-
-截图中的模型名称和供应商来自示例配置，可用项取决于实际接入的服务。
-
-## 许可证
-
-本项目采用 [MIT License](LICENSE)，允许使用、修改及分发（包括商业用途），需保留版权与许可声明。第三方依赖及 Claude Code CLI 遵循各自的许可和服务条款。
-
-## 启动
-
-需要 Node.js 22.12+（推荐 24）和已安装的 Claude Code。可以沿用本机登录，也可以在应用中配置独立 API 连接。
-
-Windows 可先双击 **`Check-Environment.cmd`**，检查 Git、Node.js 和 Claude CLI。缺少或版本不符合时逐项询问是否安装，输入 `y` 确认，直接回车跳过；通过 WinGet 安装，保留安装器的许可与系统授权提示。没有 WinGet 时提供官方安装地址。
-
-也可以[单独下载环境检查工具包](https://github.com/Xiaobai123977/claude-workspace/releases/latest/download/Claude-Workspace-Environment-Check.zip)，解压后运行。详见 [Windows 环境检查说明](docs/windows-environment.md)。
-
-双击 **`Run-Claude.cmd`** 会先检查环境，再启动；源码首次启动会询问是否运行 `npm ci` 安装项目依赖。脚本在安装后刷新当前进程的 PATH 并重新检查，不会更改 Claude 的账户、供应商或权限配置。`Check-Environment.cmd -NoPrompt` 可仅检查、不询问也不安装；安装版 GUI 本身无需 Node.js，此脚本按完整开发环境检查三项工具。
+需要 Git、Node.js 22.12+ 和 Claude Code CLI。
 
 ```powershell
-npm install
+git clone https://github.com/Xiaobai123977/claude-workspace.git
+cd claude-workspace
+npm ci
 npm start
 ```
 
-已构建后可双击 `Run-Claude.cmd`，或运行 `npm run desktop` / `scripts/start.ps1`。`npm run dev` 仅运行前端开发服务器；真实调用功能需要桌面进程。
+也可双击 `Run-Claude.cmd`，按提示检查环境并启动。打包 Windows EXE：`npm run pack:win`。
 
-## Windows 打包版
+## 更多说明
 
-运行 `npm run pack:win`，在 `release` 生成两种 EXE（均包含 GUI 运行时，使用前仍需安装 Claude CLI）：
+[详细使用](docs/usage-reference.md) · [环境检查](docs/windows-environment.md) · [业务拓扑](docs/business-topology.md) · [供应商路由](docs/model-routing.md)
 
-- `Claude-Workspace-Setup-0.1.1-x64.exe`：当前用户安装版，安装后从桌面或开始菜单打开。日常使用推荐此版本，启动时无需重复解压。
-- `Claude-Workspace-0.1.1-x64.exe`：单文件便携版，每次运行先解压到临时目录，启动会更慢。
+## 许可证
 
-也可以保留整个 `release/win-unpacked` 文件夹，直接启动其中的 `Claude Workspace.exe`，无需安装且无需重复解压；不要只复制这个文件夹内的 EXE。用户配置继续存放在 `%APPDATA%\Claude Workspace`。
-
-## 共用 Claude CLI 会话
-
-聊天正文直接读取当前 Claude 配置目录下的 `projects/*/*.jsonl`；启动、窗口聚焦及后台轮询发现 CLI 新会话与续聊，不重复导入。GUI 配置只保存归档、置顶、接入选择和界面元数据。尚无原生文件的旧 GUI 记录暂时保留，避免迁移丢失。
-
-重命名同步写入 CLI；删除聊天同时移除对应 CLI transcript、索引/输入历史引用以及该会话的子代理记录与文件快照。项目代码、Git worktree、共享记忆和附件保留。聊天分支拥有独立原生会话文件，删除分支不会删除父会话。
-
-## 已实现
-
-- 按项目分组的本地聊天，新建、搜索、重命名、归档和分支（原生 `--fork-session`）。
-- `claude -p` 流式输出、思考与工具记录、结构化错误、用量显示。
-- 消息旁直接创建对话分支；回答旁重新生成并切换回答版本。重新生成只携带该问题之前的上下文，保留原聊天与后续消息，沿用当前连接/模型/权限及附件引用，不自动回退项目文件。
-- 输入框下方显示上下文窗口、缓存命中率和输入／输出 Token，点击展开最近回答与当前分支的明细（包含工具调用及继承历史）。上下文占用与容量只采用手动读取的 CLI 上下文报告；未读取或报告已失效时显示“待读取”，不再用请求 Token 或模型配置容量估算。默认统计不额外请求模型。上游未返回缓存数据时显示“未报告”，不当成 0%。
-- 保存原生会话 ID，同一连接连续对话；重建连接时以 `--resume` 继续，也可以手动导入原生会话 ID。
-- 模型别名/自定义 ID、推理强度、权限模式、工具允许与拒绝规则。
-- `/` 默认展示筛选后的常用命令与中文用途，输入名称可搜索其他已发现命令；选择技能后填入输入框，发送后执行。已有界面的设置不重复铺开，应用导航通过 `Ctrl+K` 或附件菜单中的“应用操作”打开。
-- `#规则内容` 打开快速记忆，选择项目或个人范围后按 Enter 保存到原生 `CLAUDE.md`；追加、备份，不调用模型。也可选择作为普通消息发送。
-- `@` 项目文件搜索；选中的路径作为明确引用提交，由 Claude 按需读取。
-- 文件选择、图片/文件拖入、剪贴板图片。图片保留前端预览，向模型发送本地文件路径引用。
-- 工具审批卡片：允许一次、原生建议范围内的会话授权、拒绝与拒绝原因。支持用户提问、多选和自由回答、计划批准与退回。
-- 停止执行优先发送协议中断，超时后终止进程树；取消过期审批，保留本地消息和原生会话 ID。
-- 中文输入法选词不会发送；Enter 发送，Shift+Enter 换行。
-- 扩展管理：插件安装/启停/更新/卸载，Skills 内容与调用方式，MCP 添加/启停/连接检测/移除，以及四个免登录浏览的公开来源。
-
-## 功能入口
-
-设置管理连接与模型、权限、回复、说明、记忆和历史；原生环境变量与模型别名在“配置来源”中只读查看。
-
-当前聊天的模型与推理强度、权限、聊天运行设置在输入区调整，目标/循环使用原生命令。子代理任务直接显示在消息卡片内，顶部的“代码变更”打开审阅侧面板。扩展管理插件、Skills、Agents、工作流、MCP、Hooks、Mods 与市场；左侧“计划任务”独立管理应用调度。
-
-- 连接与模型：Claude 订阅 / 自定义 API 两种接入方式；自定义填写协议、URL 和 API Key 后自动获取模型目录。勾选聊天中显示的模型，逐模型配置思考档位和默认强度。启用连接应用于当前聊天和新聊天；聊天模型菜单只显示当前来源的可见模型。高级选项保留三协议、环境变量认证、手动模型、容量与能力修正、兼容参数和请求头；生成与能力测试统一位于每个 Key/模型的详情。
-- 子代理与后台任务直接显示在聊天卡片中，默认折叠并高亮；展开查看独立输出和工具记录，支持原生任务停止。`/tasks` 定位卡片，不再单独打开任务页。
-- 代码变更：实际编辑的回复下展示文件数/增删统计，点开连续查看本轮固定差异，或切换到工作目录全部变更。原生文件恢复在次级入口，对话分支只在消息旁创建，AI 审查使用 `/code-review`。隔离 worktree 由项目右键管理。范围与限制见 [变更审阅](docs/changes-review.md)。
-- 代理、规则与记忆：用户/项目 Agent 和规则编辑、原生工作流 JavaScript 编辑和调用、项目自动记忆内容编辑，保存检测外部修改并备份。
-- Hooks / Mods：原生 Hook JSON 管理、执行记录、已安装 Mod 识别与静态校验、本地 Mod 按聊天加载和移除。Mod 行为由 CLI 执行，原生面板不在 `-p` 中绘制。
-- 目标与循环直接通过 `/goal`、`/loop` 使用，不另设目标面板；常用命令菜单提供中文用途。跨重启的本应用计划在“计划任务”中创建/暂停/删除，仅在应用运行时触发，单独创建任务聊天，采用 `dontAsk`，不会补跑关机期间的每一次任务。
-- 运行设置：Agent、原生模式的备用模型、轮数、估算预算、快速模式、Ultracode、安全模式、Chrome、JSON Schema。
-- 诊断与外部接入：实时上下文分类、Doctor、聊天导出、原生会话列表导入；交互终端接力支持 Teams、Remote Control、Chrome、Channels 和云会话。终端中的新消息自动同步回 GUI，账户和平台条件仍由原生 CLI 检查。
-
-交互归属、合并项及保留快捷入口的原因见 [交互入口审查](docs/interaction-audit.md)。详细验收和边界见 [工作台实现说明](docs/workbench-implementation.md)。
-
-Claude 输入方式、命令发现、原生代码审查和右键编辑说明见 [Claude 命令交互](docs/claude-command-interaction.md)。选择回复文本后右键复制；输入框右键支持撤销、剪切、复制、粘贴与全选。`Shift+Tab` 在三种常用权限间切换。
-
-## 扩展与市场
-
-左侧拼图图标打开扩展页，分为插件、Skills、Agents、工作流、MCP、Hooks、Mods 和市场。内置 Anthropic 官方插件、Anthropic Skills、Superpowers 社区和 MCP 官方 Registry；也可添加公开 GitHub 市场仓库。安装前查看来源、内容和作用域。目录免登录不代表具体服务免鉴权或免费。
-
-插件通过原生 CLI 安装和管理；独立 Skill 可下载完整目录；MCP 可以从 Registry 预填或手动填写 JSON。当前尚无 MCP OAuth 登录向导和插件选项配置表单。详见 [扩展管理说明](docs/extensions-management.md)。
-
-## 设置页面
-
-左侧设置入口或 `Ctrl+,` 打开独立设置页面，支持分类搜索。
-
-- 常规：Claude 路径、配置目录、聊天字号。
-- 连接与模型：订阅/API、供应商与 Key、可见模型与默认档位、模型能力/协议验证、路由池、导入导出与备份。浏览卡片不切换已激活的连接。
-- 权限与目录：权限模式、允许/询问/拒绝规则表、额外工作目录。
-- 回复偏好：语言、输出风格、Git 提交和 PR 署名。当前聊天思考强度在模型菜单调整。
-- 项目说明与规则：全局/项目/个人 CLAUDE.md 编辑、Markdown 预览、路径规则文件。
-- 记忆：自动记忆开关与项目记忆文件编辑。
-- 上下文与历史：自动压缩窗口、原生历史保留；GUI 和 CLI 共用聊天记录。
-- 配置来源：各作用域文件位置、本地配置预览、会话覆盖、备份入口。
-
-保存可选择仅本应用、全局个人、项目个人、项目共享。打开页面不会改写文件；保存前显示变更，已有文件自动备份，并检测外部修改。项目个人设置及说明会加入项目 Git 忽略。组织管理配置为只读，配置来源预览不能替代 CLI 的完整远程策略判断。
-
-仅本应用的认证值使用 Electron safeStorage 加密保存。连接期间通过私有临时设置文件交给 CLI，连接关闭或退出应用时移除；认证值不进入 CLI 参数或前端配置快照。全局认证值按 Claude 原生格式保存。现有文件中不认识的键会保留。
-
-模型、推理与权限均可恢复继承；当前聊天已显式选择的参数仍然优先，可在配置来源页恢复继承。仅本应用保存的配置通过 `--settings` 参与后续调用，不会覆盖原生文件。旧版已有聊天保留原来的模型与模式，新建聊天可选择继承。
-
-## 行为边界
-
-默认继承本机 Claude 的配置和认证，不要求重新填写 API 密钥；也可以在设置中保存应用自己的连接覆盖。应用会自动寻找原生 `claude.exe` 或 npm CLI 脚本，可在设置中指定路径。
-
-标准权限下需要交互授权的工具会显示审批卡片。允许编辑、计划模式、完全访问及工具规则均传给 CLI；完全访问跳过大部分审批，仍尊重原生限制。模型与推理强度是否可用取决于 Claude 版本和账户。
-
-会话授权使用 CLI 提供的建议，限定为当前连接，不写入原生配置。禁止记住的请求不显示会话授权按钮。修改模型、配置或目录等会在下一次发送时重新建立连接，临时授权随连接结束失效。等待期间可切换聊天；停止、连接关闭或重启应用后，旧审批不能再提交。当前仍不提供运行中消息排队或即时补充指令。
-
-`/` 菜单通过本机 CLI initialize 返回的命令元数据发现可用功能，不因模型声称存在就添加命令。CLI 技能按原始 `/名称 参数` 发送；`/model`、`/config`、`/cost`、`/context`、`/clear` 等 GUI 适配项标为“会话控制”。`/clear` 创建新的上下文并保留原聊天和接入参数。应用导航集中在 `Ctrl+K`，不会覆盖未发送的草稿。用户/项目/插件技能仍按可见性扫描补充，当前安全模式及版本能力由原生 CLI 决定。
-
-按 ID 恢复外部 Claude 会话时，Claude 使用其原生历史，本应用从后续调用开始记录。聊天选项中的“上下文与会话工具”提供当前项目的原生会话列表和导入，界面最多保留最近 300 条可呈现消息；原始 transcript 不改写。文件引用不自动将全文注入上下文。
-
-数据存放在 Electron userData 下的 `workspace.json` 和 `attachments/`，CLI 的原生历史仍由 Claude 保存。应用关闭会停止应用启动的调用。恢复调用的费用报告可能包含原生会话此前的累计费用，因此界面展示最近报告，不将其重复相加。
-
-## 验证
-
-```powershell
-npm test
-npm run build
-npm run test:ui
-npm run test:chat-context-ui
-npm run test:project-context-ui
-npm run test:project-picker-ui
-npm run test:settings-ui
-npm run test:approvals-ui
-npm run test:extensions-ui
-npm run test:workbench-ui
-npm run test:providers-persistence-ui
-npm run test:gateway-retry-ui
-npm run test:model-routing-ui
-npm run test:browser-ui
-npm run test:browser-real-cli
-npm run test:browser-protocols
-npm run test:model-profile-ui
-npm run test:providers-real-cli
-npm run test:workbench-real-cli
-```
-
-聊天、设置和审批 UI 集成测试使用独立临时数据和模拟 CLI，验证实际 Electron IPC、进程通信、附件、恢复和持久化。扩展 UI 测试访问公开网络并使用原生 CLI，安装写入隔离配置目录；这些测试不调用模型。真实 CLI 验证结果见 `docs/implementation-validation.md`。
-
-设置测试额外验证作用域写入、加密、备份、字段保留、配置冲突、规则编辑、未保存提醒和重启恢复。可显式运行 `node scripts/settings-real-smoke.cjs` 验证真实 Claude 的 `--settings` 加载（会产生一次模型调用，仅在临时目录写入测试配置）。
-
-审批测试覆盖允许/拒绝、拒绝原因、多选/自由输入、计划批准/退回、取消、会话授权、禁止记住、过期答案和聊天隔离。`node scripts/approvals-real-smoke.mjs` 会产生真实模型调用，通过 Electron 界面验证这些交互的核心路径，仅在独立临时目录操作。
-
-源码调查见 `docs/claude-code-gui-research.md` 与 `docs/ekko-studio-source-research.md`。参考 Ekko 的行为与架构，未复制其产品源码。
-
-订阅模式在子进程中隔离网关地址、API 凭证和模型别名，使用本机订阅登录；原生设置文件保持原样。未登录订阅时需要先执行 `claude auth login`。`node scripts/subscription-real-cli-smoke.cjs` 验证真实 CLI 的初始化模型列表与配置文件未被修改，不发送生成请求。
-
-提供商持久化测试在隔离配置目录中真实关闭窗口并重开两次，验证仅保存/已启用两种状态、加密密钥重用、模型可见性和默认思考档位；不会读取用户密钥或调用付费模型。已保存但未启用的连接也能从订阅页进入管理。
-
-`Run-Claude.cmd` 每次启动先重新构建，构建失败不会启动旧产物。已运行的应用检测到构建更新且没有执行任务时，通过正常关闭流程重启；未保存的设置和消息草稿可阻止关闭。“供应商与 Key”页以折叠卡片展示已保存供应商，点击后在原卡片内编辑；底部的“添加新的供应商”卡片用于新建，默认收起表单。
-
-设置去重：供应商列表是唯一选择入口；旧版 CLI 连接不再提供第二套编辑表单；默认权限仅在权限页配置；思考默认值按模型配置，当前聊天在输入区调整；项目说明和工作流页面仅编辑定义，执行与代理选择回到聊天；配置来源只读展示，并允许显式清除旧版覆盖，保留原有持久数据。
-
-多 Key 和供应商轮转：设置 → 连接与模型 → 自定义 API，分别提供「供应商与 Key」与「模型服务池」。支持独立目录检测、供应商/Key 两层权重、跨重启粘性、同 ID 覆盖统计、不同模型 ID 手动映射及故障换线。配置方法、验证和协议边界见 [多供应商路由](docs/model-routing.md)。
-
-聊天顶部提供内置浏览器与代码变更入口。支持点选网页元素、附加修改要求与截图、让 Claude 通过当前聊天的浏览器工具操作页面，并在文件列表和统一/左右差异视图中查看源码修改。使用方式及范围见 [浏览器与代码变更](docs/browser-and-code-review.md)，参考 [OpenDesign 源码调查](docs/opendesign-source-research.md)。
-
-模型档案支持每个 Key 独立覆盖能力与协议参数、显式工具/图片/思考参数验证、CLI 上下文限制、请求预览，以及版本化导入和加密备份恢复。入口为模型详情与「导入、导出与备份」页，说明见 [模型档案与配置文件](docs/model-profiles.md)。
-
-聊天列表支持右键菜单和 Shift+F10：重命名、置顶、已读标记、创建聊天分支、复制标题/内容、导出、打开项目目录、归档和删除。删除只移除本应用的聊天记录与关联计划，保留项目文件、原生 Claude 历史和共享附件。
-
-项目行支持右键及 Shift+F10：新建聊天、修改显示名称、项目置顶、折叠/展开、复制路径、打开目录、批量归档和从侧栏移除。显示名称不改动磁盘目录；移除保留聊天记录和项目文件，重新添加目录可恢复显示。项目内有任务运行时禁止批量归档。
-
-输入框上方项目名称可打开项目选择器，支持搜索已有项目及添加新的项目目录。空白聊天直接切换目录；已有记录的聊天在目标项目中新建聊天并转移输入草稿，保留原聊天。切出后没有聊天的项目仍留在项目列表中。“此计算机”静态标签已移除，文件管理器入口保留在项目菜单与聊天顶部。
+[MIT](LICENSE)。Claude Code CLI 和第三方依赖遵循各自许可与服务条款。
