@@ -2,6 +2,20 @@
 
 基于本机 Claude Code CLI 的桌面 GUI，使用 Electron、React 与 TypeScript。界面参考 Codex 的项目侧栏、聊天布局和底部命令菜单。
 
+## 下载使用
+
+前往 [Releases](https://github.com/Xiaobai123977/claude-workspace/releases/latest) 下载 Windows x64 安装包：
+
+- **推荐安装版**：`Claude-Workspace-Setup-0.1.1-x64.exe`，安装后从桌面或开始菜单启动。
+- **便携版**：`Claude-Workspace-0.1.1-x64.exe`，无需安装，每次启动需要解压，速度稍慢。
+- `SHA256SUMS.txt` 提供文件的 SHA-256 校验值。
+
+使用前需要自行安装 Claude Code CLI。应用不附带 Claude 账户、订阅或 API Key，可沿用本机登录或配置自己的 API 供应商。安装版包含 GUI 运行时，使用者无需另装 Node.js；从源码开发需要 Node.js。
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE)，允许使用、修改及分发（包括商业用途），需保留版权与许可声明。第三方依赖及 Claude Code CLI 遵循各自的许可和服务条款。
+
 ## 启动
 
 需要 Node.js 22.12+（推荐 24）和已安装的 Claude Code。可以沿用本机登录，也可以在应用中配置独立 API 连接。

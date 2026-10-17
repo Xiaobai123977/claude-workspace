@@ -1,6 +1,7 @@
 {
   "name": "claude-workspace",
   "version": "0.1.1",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
