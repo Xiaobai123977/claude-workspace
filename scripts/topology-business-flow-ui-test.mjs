@@ -36,7 +36,7 @@ try{
   assert.equal(await page.locator('.flow-wire.return').count(),1);await page.getByRole('img',{name:'业务流程全景导航，点击定位'}).waitFor()
   await button('模块：处理申请').click();await button('收起拓扑批注窗口').click();await button('突出选中流程').click();assert.ok(await page.locator('.flow-port').count()>=8)
   fs.mkdirSync(path.join(root,'artifacts'),{recursive:true});await page.screenshot({path:path.join(root,'artifacts/topology-business-flow.png')})
-  await button('模块：处理申请').dblclick();await button('模块：核验并执行业务').waitFor();assert.ok(await page.locator('.boundary-wire').count()>=4)
+  await button('模块：处理申请').dblclick();await button('模块：核验并执行业务').waitFor();assert.ok(await page.locator('.boundary-wire').count()>=2)
   await app.close();await launch();await button('业务拓扑').click();await button('模块：处理申请').waitFor();assert.equal((await page.evaluate(()=>window.workspace.get())).sessions[0].messages.filter(m=>m.role==='user').length,1)
   // Start another automatic job, then interrupt while its second batch waits.
   await app.close();env.CLAUDE_GUI_TEST_TOPOLOGY_AUTO_WAIT='1';await launch();await button('业务拓扑').click();await button('并发探索').click();await page.getByRole('combobox',{name:'拓扑探索深度'}).selectOption('auto');await button('准备并发探索').click();await page.getByRole('textbox',{name:'消息输入'}).press('Enter')

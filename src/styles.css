@@ -13,3 +13,5 @@
 .tool-group-items{padding:0 10px 10px}.tool-group-items>.tool-card{margin:6px 0 0}.tool-group>.tool-summary>span:first-of-type{white-space:nowrap}.tool-group>.tool-summary>.tool-hint{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .message-inline-actions{display:flex;align-items:center;gap:8px;margin-top:8px;color:#999}.message-inline-actions>button{min-height:26px;padding:4px 6px}.answer-versions{display:inline-flex;align-items:center;gap:2px;white-space:nowrap}.message-footer .answer-versions>button{width:22px;height:24px;padding:3px}.answer-versions>span{min-width:34px;text-align:center;font-variant-numeric:tabular-nums}.message-footer{flex-wrap:wrap}
 .agent-progress>span:last-child{display:block}.agent-progress small{display:block;margin-top:5px;font-size:10px;color:#a18b76;line-height:1.7}.agent-progress{align-items:flex-start}.agent-progress>.pulse-dot{margin-top:6px}
+
+.bounded-text{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}.content-chunk{overflow-anchor:auto}

@@ -1,7 +1,6 @@
 import {useState,type ReactNode} from 'react'
 import {Bot,ChevronRight,LoaderCircle,Monitor} from 'lucide-react'
-import ReactMarkdown,{defaultUrlTransform} from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import {LargeContent,LazyThought} from './LargeContent'
 import type {Message,Tool} from './types'
 import {agentCards,type AgentCard} from './agent-cards'
 import './agent-activity.css'
@@ -16,9 +15,9 @@ function ActivityCard({card,sessionId,renderTools,onOpenLink}:{card:AgentCard;se
       {active?<LoaderCircle size={15} className="spin"/>:agent?<Bot size={15}/>:<Monitor size={15}/>}<span><strong>{agent?'子代理':'后台任务'}{card.title!==(agent?'子代理':'后台任务')?' · '+card.title:''}</strong><small>{card.agent?.tools.length?`${card.agent.tools.length} 次工具调用`:active?'独立执行中':'点击查看结果与工具记录'}</small></span><em>{names[card.status]||card.status}</em><ChevronRight size={14} className={open?'rotated':''}/>
     </button>
     {open&&<div className="agent-activity-detail">
-      {card.tool?.input&&<details><summary>任务指令</summary><pre>{card.tool.input}</pre></details>}
-      {card.agent?.thinking&&<details><summary>思考过程</summary><pre>{card.agent.thinking}</pre></details>}
-      <div className="markdown agent-output">{text?<ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={(url,key)=>key==='href'&&/^file:\/\//i.test(url)?url:defaultUrlTransform(url)} components={{a:({href,children})=><a href={href} onClick={e=>{e.preventDefault();if(href)onOpenLink(href)}}>{children}</a>}}>{text}</ReactMarkdown>:<p>{active?'等待子任务输出…':'未记录输出'}</p>}</div>
+      {card.tool?.input&&<details><summary>任务指令</summary><LargeContent text={card.tool.input}/></details>}
+      {card.agent?.thinking&&<LazyThought text={card.agent.thinking}/>}
+      <div className="markdown agent-output">{text?<LargeContent text={text} markdown onOpenLink={onOpenLink}/>:<p>{active?'等待子任务输出…':'未记录输出'}</p>}</div>
       {card.task?.summary&&card.task.summary!==text&&<p className="agent-task-summary">{card.task.summary}</p>}
       {card.agent&&renderTools(card.agent.tools)}
       {card.task&&active&&<button className="agent-stop" disabled={stopping} onClick={()=>{setStopping(true);setIssue('');void window.workspace.stopTask(sessionId,card.task!.id).catch(e=>setIssue(String(e.message||e))).finally(()=>setStopping(false))}}>{stopping?'正在请求停止…':'停止此任务'}</button>}

@@ -28,6 +28,20 @@ function turn(prompt, hasImage = false) {
   if (process.env.CLAUDE_GUI_TEST_PROOF) fs.writeFileSync(process.env.CLAUDE_GUI_TEST_PROOF, JSON.stringify({ maxContextTokens:process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,autoCompactWindow:process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,maxOutputTokens:process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,model: runtimeSettings.model, effort: runtimeSettings.effortLevel, hasToken: !!runtimeSettings.env?.ANTHROPIC_AUTH_TOKEN, hasModelFlag: args.includes('--model'), configurationDirectory: process.env.CLAUDE_CONFIG_DIR }))
   if (!initialized) { initialized = true; emit({ type: 'system', subtype: 'init', session_id: id, model: runtimeSettings.model || 'sonnet' }) }
   state('busy'); turns++
+  if(process.env.CLAUDE_GUI_TEST_LARGE_OUTPUT&&prompt==='LARGE_OUTPUT_STRESS'){
+    const messageId='large-stress',thought='思考数据流与实现细节。'.repeat(400),text='业务结果与验证记录。'.repeat(400)+'\n\n'
+    emit({type:'stream_event',event:{type:'message_start',message:{id:messageId}}})
+    let index=0
+    const pump=()=>{
+      if(index<1024)emit({type:'stream_event',event:{type:'content_block_delta',index:0,delta:{type:'thinking_delta',thinking:thought}}})
+      else if(index<1536)emit({type:'stream_event',event:{type:'content_block_delta',index:1,delta:{type:'text_delta',text}}})
+      else{
+        emit({type:'result',subtype:'success',result:'',usage:{input_tokens:10,output_tokens:1000000}});state('idle');return
+      }
+      index++;later(pump,2)
+    }
+    pump();return
+  }
   if(process.env.CLAUDE_GUI_TEST_TOPOLOGY_AUTO){
     const path=require('node:path'),graphs=JSON.parse(fs.readFileSync(process.env.CLAUDE_GUI_TEST_TOPOLOGY_AUTO,'utf8')),graph=graphs[Math.min(turns-1,graphs.length-1)],file=path.join(process.cwd(),'.claude','workspace-topology.json')
     fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,JSON.stringify(graph,null,2))

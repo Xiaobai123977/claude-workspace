@@ -103,5 +103,5 @@ contextBridge.exposeInMainWorld('workspace', {
   openFolder: id => call('workspace:open', id),
   openLink: url => call('link:open', url),
   window: action => call('window:action', action),
-  subscribe: callback => { const listener = (_event, state) => callback(state); ipcRenderer.on('workspace:state', listener); return () => ipcRenderer.removeListener('workspace:state', listener) },
+  subscribe: callback => { const listener = (_event, state, sequence) => { callback(state); setTimeout(()=>ipcRenderer.send('workspace:state-ack',sequence),80) }; ipcRenderer.on('workspace:state', listener); return () => ipcRenderer.removeListener('workspace:state', listener) },
 })

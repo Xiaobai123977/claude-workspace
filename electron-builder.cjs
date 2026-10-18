@@ -2,7 +2,7 @@ module.exports={
   appId:'com.claudeworkspace.desktop',
   productName:'Claude Workspace',
   directories:{output:'release'},
-  files:['electron/**/*.cjs','electron/topology-skill.md','dist/**/*','package.json','!node_modules/**/*'],
+  files:['electron/**/*.cjs','electron/topology-skill.md','dist/**/*','package.json','THIRD_PARTY_NOTICES.md','licenses/**/*','!node_modules/**/*'],
   asar:true,
   asarUnpack:['electron/browser-mcp.cjs','electron/browser-tools.cjs'],
   electronLanguages:['zh-CN','en-US'],

@@ -2,8 +2,7 @@ import type { GatewayRetry, NativeCommand } from './types'
 import type { SettingsSection } from './SettingsPage'
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import ReactMarkdown, {defaultUrlTransform} from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import {LargeContent,LazyThought} from './LargeContent'
 import { MousePointer2, Globe, Home, History, Settings, Folder, Plus, SquarePen, Search, PanelLeft, ArrowUp, Square, ChevronDown, ChevronRight, ChevronLeft, GitBranch, X, Minus, Maximize2, Paperclip, FileText, Image as ImageIcon, Shield, ShieldCheck, Monitor, Zap, Archive, Gauge, SlidersHorizontal, CircleHelp, Check, Copy, Terminal, Brain, RefreshCw, MoreHorizontal, ExternalLink, Command, LoaderCircle, AlertCircle, CheckCircle2, FolderOpen, RotateCcw, Puzzle, Pin } from 'lucide-react'
 import type { Attachment, BrowserContext, TopologyDraft, Message, Preferences, Probe, Session, Skill, State, Tool } from './types'
 import './styles.css'
@@ -53,7 +52,7 @@ function ToolCard({ tool }: { tool: Tool }) {
       {tool.status === 'waiting' ? <Shield size={15}/> : tool.status === 'running' ? <LoaderCircle size={15} className="spin"/> : tool.status === 'error' ? <AlertCircle size={15}/> : <Check size={15}/>}
       <span>{browserToolNames[tool.name]||tool.name}</span><span className="tool-hint">{tool.status === 'waiting' ? '等待确认' : tool.status === 'running' ? '执行中' : tool.status === 'stopped' ? '已停止' : tool.status === 'error' ? '执行失败' : '已完成'}</span><ChevronRight size={14} className={open ? 'rotated' : ''}/>
     </button>
-    {open && <div className="tool-detail"><label>输入</label><pre>{tool.input || '无参数'}</pre>{tool.output && <><label>结果</label><pre>{tool.output}</pre></>}</div>}
+    {open && <div className="tool-detail"><label>输入</label><LargeContent text={tool.input || '无参数'}/>{tool.output && <><label>结果</label><LargeContent text={tool.output}/></>}</div>}
   </div>
 }
 function ToolGroup({ tools }: { tools: Tool[] }) {
@@ -94,8 +93,8 @@ function MessageView({ message, sessionId, disabled, canRegenerate, retry = fals
       {message.attachments?.length ? <div className="message-attachments">{message.attachments.map(a => <span key={a.id} title={a.path}>{a.preview ? <img src={a.preview} alt={a.name}/> : <FileText size={15}/>} {a.name}</span>)}</div> : null}
       {message.topologySelection&&<details className="topology-message-context"><summary>业务拓扑选区 · {message.topologySelection.requests.map(r=>r.summary).join('、')}</summary><pre>{message.topologySelection.context}</pre></details>}
       {message.browserContexts?.map((c,i)=><details className="browser-context" key={i}><summary>网页元素 · {c.tag} · {c.text.slice(0,60)||c.selector}</summary><pre>{JSON.stringify(c,null,2)}</pre></details>)}
-      {message.thinking && <details className="thinking"><summary><Brain size={14}/> 思考过程</summary><div>{message.thinking}</div></details>}
-      <div className="markdown"><ReactMarkdown urlTransform={(url,key)=>key==='href'&&/^file:\/\//i.test(url)?url:defaultUrlTransform(url)} remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <a href={href} onClick={e => { e.preventDefault(); if (href) onOpenLink(href) }}>{children}</a> }}>{message.text}</ReactMarkdown></div>
+      {message.thinking && <LazyThought text={message.thinking}/>}
+      <div className="markdown"><LargeContent text={message.text} markdown onOpenLink={onOpenLink}/></div>
       <ToolGroup tools={message.tools.filter(tool=>!isAgentTool(tool))}/>
       {message.approvals?.map(card => <ApprovalCard key={card.id} card={card} sessionId={sessionId}/>)}
       <AgentActivity message={message} sessionId={sessionId} renderTools={tools=><ToolGroup tools={tools}/>} onOpenLink={onOpenLink}/>

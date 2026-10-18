@@ -1,11 +1,13 @@
 {
   "name": "claude-workspace",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "license": "MIT",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
+    "test:topology-dense-ui": "node scripts/topology-dense-ui-test.mjs",
+    "test:large-output-ui": "node scripts/large-output-ui-test.mjs",
     "test:window-restore-ui": "node scripts/window-restore-ui-test.mjs",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
@@ -56,6 +58,7 @@
     "test:topology-workflow-ui": "node scripts/topology-workflow-ui-test.mjs"
   },
   "dependencies": {
+    "elkjs": "^0.12.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

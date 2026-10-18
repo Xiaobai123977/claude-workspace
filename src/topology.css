@@ -47,3 +47,5 @@
 .topology-minimap rect.minimap-viewport{fill:#ddbb8e18;stroke:#eed0aa;stroke-width:5;pointer-events:none}
 .topology-exploration-progress{font-size:11px;padding:7px 16px;color:#c5ad92;flex-shrink:0}
 .topology-exploration-progress button{font-size:11px;color:var(--accent);margin-left:10px}
+
+.flow-wire.dense-wire text{opacity:0}.flow-wire.dense-wire:hover text,.flow-wire.dense-wire.selected text,.flow-wire.dense-wire:focus-visible text{opacity:1}.flow-wire.flow-dim{opacity:.12}.flow-process.flow-dim{opacity:.28}.flow-wire:hover .edge-line{stroke-width:2.5}

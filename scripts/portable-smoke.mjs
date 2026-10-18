@@ -10,6 +10,8 @@ const root=path.resolve(import.meta.dirname,'..'),version=JSON.parse(fs.readFile
 if(!fs.existsSync(exe))throw new Error('Build the portable EXE with npm run pack:win first')
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'claude-portable-smoke-')),data=path.join(temp,'profile'),project=path.join(temp,'project');fs.mkdirSync(data);fs.mkdirSync(project)
 fs.writeFileSync(path.join(project,'hello.html'),'<title>Portable preview</title><h1>PACKAGED_LOCAL_PREVIEW_OK</h1>')
+fs.mkdirSync(path.join(project,'.claude'))
+fs.writeFileSync(path.join(project,'.claude/workspace-topology.json'),JSON.stringify({version:1,title:'打包拓扑验证',description:'验证打包后的布局引擎可离线工作。',nodes:[{id:'request',label:'请求处理',purpose:'处理请求',kind:'module',inputs:['request'],outputs:['result'],refs:[{path:'hello.html',line:1}]},{id:'response',label:'返回结果',purpose:'返回响应',kind:'terminal',inputs:['result'],outputs:[],refs:[{path:'hello.html',line:1}]}],edges:[{id:'result',source:'request',target:'response',label:'业务结果',data:'结果数据',sourceOutputs:['result'],targetInputs:['result'],refs:[]}]}))
 const env={...process.env,CLAUDE_GUI_DATA_DIR:data,CLAUDE_CONFIG_DIR:path.join(data,'native-profile'),CLAUDE_GUI_INITIAL_CWD:project};delete env.ELECTRON_RUN_AS_NODE
 const startedAt=Date.now()
 const child=spawn(exe,['--remote-debugging-port=0'],{cwd:temp,env,windowsHide:true,stdio:['ignore','pipe','pipe']});let stderr='';child.stderr.on('data',b=>{stderr=(stderr+b).slice(-4000)});child.stdout.resume()
@@ -28,8 +30,11 @@ try{
   await page.getByRole('button',{name:'内置浏览器',exact:true}).click();await page.getByLabel('浏览器地址').fill(pathToFileURL(path.join(project,'hello.html')).href);await page.getByRole('button',{name:'打开',exact:true}).click()
   await page.waitForFunction(async id=>{try{const r=await window.workspace.browserAction(id,'inspect');return r.content[0].text.includes('PACKAGED_LOCAL_PREVIEW_OK')}catch{return false}},state.activeId)
   await page.screenshot({path:path.join(root,'artifacts/portable-exe.png')})
+  await page.getByRole('button',{name:'业务拓扑',exact:true}).click()
+  await page.getByRole('button',{name:'模块：请求处理',exact:true}).waitFor()
+  await page.getByRole('button',{name:'连接：业务结果',exact:true}).waitFor()
   await page.getByRole('button',{name:'关闭窗口',exact:true}).click();closed=true
-  console.log(JSON.stringify({portable:exe,bytes:fs.statSync(exe).size,startupMs,cliVersion:probe.version,isolatedData:data,sourceWorkspaceRequired:false,localPreview:true},null,2))
+  console.log(JSON.stringify({portable:exe,bytes:fs.statSync(exe).size,startupMs,cliVersion:probe.version,isolatedData:data,sourceWorkspaceRequired:false,localPreview:true,topologyLayout:true},null,2))
 }finally{
   if(page&&!closed&&!page.isClosed())await page.evaluate(()=>window.workspace.window('close')).catch(()=>{})
   if(browser)await browser.close().catch(()=>{})

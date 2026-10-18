@@ -25,6 +25,7 @@ const {mainEvent,observeRunEvent,finishDisposition,agentProgress}=require('./run
 const {nextFinalRetry,clearFinalRetryOnOutput,DELAY_MS}=require('./final-error-retry.cjs')
 const {installWindowRendering}=require('./window-rendering.cjs')
 const {installDesktopTray}=require('./desktop-tray.cjs')
+const {StatePublisher}=require('./state-publisher.cjs')
 
 if (process.env.CLAUDE_GUI_DATA_DIR) app.setPath('userData', process.env.CLAUDE_GUI_DATA_DIR)
 app.setName('Claude Workspace')
@@ -32,7 +33,7 @@ if(!process.env.CLAUDE_GUI_DATA_DIR)app.setPath('userData',path.join(app.getPath
 const initialCwd=()=>process.env.CLAUDE_GUI_INITIAL_CWD||(app.isPackaged?app.getPath('documents'):process.cwd())
 if (!app.requestSingleInstanceLock()) { app.quit(); return }
 let win, state, storage, timer, configuration, extensions, providers, operations, scheduler, browser, sharedHistory, historyTimer,turnChanges
-let topology,desktopTray
+let topology,desktopTray,statePublisher
 let extensionRevision = 0, extensionQueue = Promise.resolve()
 function buildFingerprint() {
   const files = [path.join(__dirname, '../dist/index.html'), ...fs.readdirSync(__dirname).filter(f => f.endsWith('.cjs')).sort().map(f => path.join(__dirname, f))]
@@ -113,7 +114,7 @@ function persist() {
   fs.writeFileSync(temp, JSON.stringify(sharedHistory ? sharedHistory.serialize(state) : state, null, 2)); fs.renameSync(temp, storage)
 }
 function notify(immediate = false) {
-  if (win && !win.isDestroyed()) win.webContents.send('workspace:state', state)
+  statePublisher?.request()
   clearTimeout(timer)
   if (immediate) persist(); else timer = setTimeout(persist, 180)
 }
@@ -834,6 +835,11 @@ app.whenReady().then(() => {
   handle('window:action', action => { if (action === 'minimize') win.minimize(); if (action === 'maximize') win.isMaximized() ? win.unmaximize() : win.maximize(); if (action === 'close') win.close() })
   win = new BrowserWindow({ width: 1440, height: 960, minWidth: 900, minHeight: 620, frame: false, backgroundColor: '#181818', show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false } })
   win.removeMenu()
+  statePublisher=new StatePublisher({send:sequence=>win.webContents.send('workspace:state',state,sequence),isVisible:()=>!win.isDestroyed()&&!win.webContents.isDestroyed()&&win.isVisible()&&!win.isMinimized()})
+  ipcMain.on('workspace:state-ack',(event,sequence)=>{if(event.sender===win.webContents)statePublisher.ack(sequence)})
+  win.webContents.on('did-finish-load',()=>statePublisher.reset())
+  win.on('show',()=>statePublisher.request())
+  win.on('restore',()=>statePublisher.request())
   desktopTray=installDesktopTray({app,window:win,Tray,Menu,nativeImage})
   installEditMenu(win,Menu)
   browser=new BrowserService({window:win,projectRoot:id=>sessionById(id).cwd,userData:app.getPath('userData'),isEnabled:id=>!!state.sessions.find(s=>s.id===id)?.browserEnabled&&!state.sessions.find(s=>s.id===id)?.options?.safeMode,onChange:(id,value)=>win.webContents.send('browser:state',id,value)})
@@ -847,6 +853,7 @@ app.whenReady().then(() => {
   win.loadFile(path.join(__dirname, '../dist/index.html'))
 })
 app.on('before-quit', () => {
+  statePublisher?.close()
   clearInterval(historyTimer)
   browser?.close()
   scheduler?.close(); providers?.close()
