@@ -63,7 +63,8 @@ test('expert parameters cannot replace agent messages or credentials and model d
 test('protocol requests preserve tool turns, reasoning history, images, and protocol-specific effort',()=>{
   const body={system:[{type:'text',text:'System'}],max_tokens:500,stream:true,tools:[{name:'Read',input_schema:{type:'object'}}],messages:[{role:'assistant',content:[{type:'thinking',thinking:'Private history'},{type:'tool_use',id:'call1',name:'Read',input:{path:'a'}}]},{role:'user',content:[{type:'tool_result',tool_use_id:'call1',content:[{type:'text',text:'Read result'}]},{type:'image',source:{type:'base64',media_type:'image/png',data:'abc'}}]}]}
   const chat=convertRequest(body,{...base(),model:'model-a',effort:'high'})
-  assert.equal(chat.reasoning_effort,'high');assert.equal(chat.messages[1].reasoning_content,'Private history');assert.equal(chat.messages.at(-1).tool_call_id,'call1')
+  assert.equal(chat.reasoning_effort,'high');assert.equal(chat.messages[1].reasoning_content,'Private history');assert.equal(chat.messages[2].tool_call_id,'call1')
+  assert.equal(chat.messages.at(-1).role,'user');assert.equal(chat.messages.at(-1).content[0].type,'image_url')
   const responses=convertRequest(body,{...base(),protocol:'responses',model:'model-a',effort:'low'})
   assert.deepEqual(responses.reasoning,{effort:'low'});assert.equal(responses.input.find(i=>i.type==='function_call_output').output,'Read result')
   assert.ok(!JSON.stringify(convertRequest(body,{...base(),model:'model-a',models:[{id:'model-a',vision:false}]})).includes('data:image/'))

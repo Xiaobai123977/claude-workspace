@@ -7,6 +7,7 @@ const {inspectResponse,upstreamError}=require('./upstream-response.cjs')
 const {upstreamHint,redact}=require('./provider-errors.cjs')
 const {applyEffort}=require('./model-profile.cjs')
 const {adaptImages}=require('./image-references.cjs')
+const {normalizeChatToolHistory}=require('./chat-tool-history.cjs')
 function endpoint(base, protocol) {
   const u = new URL(base)
   let p = u.pathname.replace(/\/+$/, '').replace(/\/(messages|chat\/completions|responses|models)$/, '')
@@ -67,7 +68,7 @@ function convertProtocolRequest(body, p) {
   const choice = body.tool_choice?.type === 'tool' ? { type:'function', function:{name:body.tool_choice.name} } : body.tool_choice?.type === 'any' ? 'required' : body.tool_choice?.type === 'auto' ? 'auto' : undefined
   if (p.protocol === 'chat') {
     const field = p.outputTokenField && p.outputTokenField !== 'auto' ? p.outputTokenField : new URL(p.baseUrl).hostname === 'api.openai.com' ? 'max_completion_tokens' : 'max_tokens'
-    return { model: p.model, messages:messages.map(({imageOutput,...msg})=>msg), stream: !!body.stream, ...(body.stream ? { stream_options: { include_usage: true } } : {}), [field]:limit,
+    return { model: p.model, messages:normalizeChatToolHistory(messages.map(({imageOutput,...msg})=>msg)), stream: !!body.stream, ...(body.stream ? { stream_options: { include_usage: true } } : {}), [field]:limit,
       ...(tools?.length ? { tools, ...(choice ? {tool_choice:choice} : {}), ...(body.tool_choice?.disable_parallel_tool_use != null ? {parallel_tool_calls:!body.tool_choice.disable_parallel_tool_use} : {}) } : {}), ...(p.effort ? { reasoning_effort: p.effort } : {}), ...(thinking !== 'inherit' ? { thinking: { type: thinking } } : {}) }
   }
   const input = []
